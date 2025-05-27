@@ -1,3 +1,8 @@
+# New
+transformer-err/
+transformer-out/
+CUM_report/
+
 # custom .gitignore
 submit.py
 !src/data/__init__.py
