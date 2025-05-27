@@ -1,7 +1,6 @@
 # New
 transformer-err/
 transformer-out/
-CUM_report/
 
 # custom .gitignore
 submit.py
