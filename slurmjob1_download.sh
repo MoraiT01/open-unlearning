@@ -18,13 +18,13 @@ srun hostname
 
 bash slurmjob0_install.sh
 
+# Logging
 conda env list
 
-echo "Success"
-
+### Now you may start your operations below ###
 # Data setup
-# python setup_data.py --eval # saves/eval now contains evaluation results of the uploaded models
+python setup_data.py --eval # saves/eval now contains evaluation results of the uploaded models
 # This downloads log files with evaluation results (including retain model logs)
 # into `saves/eval`, used for evaluating unlearning across supported benchmarks.
 # Additional datasets (e.g., WMDP) are supported — run below for options:
-# python setup_data.py --help
+python setup_data.py --help
