@@ -1,8 +1,8 @@
 #!/bin/bash
 #debugging job
-#SBATCH --job-name=debug_movie_review_job # specify the job name for monitoring
-#SBATCH --output=transformer-out/moviereview_JOB_%j.out # specify the output file
-#SBATCH --error=transformer-err/moviereview_JOB_%j.err # specify the error file
+#SBATCH --job-name=nova_job_install_conda_env # specify the job name for monitoring
+#SBATCH --output=transformer-out/install_conda_env_JOB_%j.out # specify the output file
+#SBATCH --error=transformer-err/install_conda_env_JOB_%j.err # specify the error file
 #SBATCH --nodes=1 # As we have single node it should be always set as 1
 #SBATCH --cpus-per-task=4 # Number of CPUs
 #SBATCH --gres=gpu:1g.10gb:1  # Allocate 1 GPU resources with specified configurations
