@@ -16,6 +16,7 @@
 # Run the Python script
 srun hostname
 
+# If you still need to setup the environment:
 # bash slurmjob0_install.sh
 
 # Initialize Conda for the current shell session
@@ -29,10 +30,12 @@ conda activate /fast_storage/kastler/miniconda3/envs/unlearning
 conda info --envs
 
 ### Now you may start your operations below ###
-ulimti -l
+
 # Data setup
+echo "Start of Setup"
 python setup_data.py --eval # saves/eval now contains evaluation results of the uploaded models
+echo "End of Setup"
 # This downloads log files with evaluation results (including retain model logs)
 # into `saves/eval`, used for evaluating unlearning across supported benchmarks.
 # Additional datasets (e.g., WMDP) are supported — run below for options:
-python setup_data.py --help
+# python setup_data.py --help

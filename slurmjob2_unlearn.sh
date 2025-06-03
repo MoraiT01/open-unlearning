@@ -16,7 +16,8 @@
 # Run the Python script
 srun hostname
 
-bash slurmjob0_install.sh
+# If you still need to setup the environment:
+# bash slurmjob0_install.sh
 
 # Initialize Conda for the current shell session
 # Replace '~/miniconda3' with the actual path to your Miniconda/Anaconda installation if different
@@ -29,3 +30,17 @@ conda activate /fast_storage/kastler/miniconda3/envs/unlearning
 conda info --envs
 
 ### Now you may start your operations below ###
+# python src/eval.py \
+#   experiment=eval/tofu/default.yaml \
+#   forget_split=forget01 \
+#   holdout_split=holdout01 \
+#   model=Llama-2-7b-hf \
+#   task_name=tofu_Llama-2-7b-hf_forget01_NPO \
+#   model.model_args.pretrained_model_name_or_path=??? \
+#   paths.output_dir=saves/unlearn/tofu_Llama-2-7b-hf_forget01_NPO/evals \
+#   retain_logs_path=???
+
+python src/train.py --config-name=train.yaml experiment=finetune/tofu/default \
+  trainer.args.learning_rate=5e-5 task_name=Llama-3.2-3B-Instruct_finetune_example \
+  paths.output_dir=saves/unlearn/Llama-3.2-3B-Instruct-hf_forget01_NPO/evals \
+  retain_logs_path=saves/eval/tofu_Llama-3.2-3B-Instruct_retain99/TOFU_EVAL.json

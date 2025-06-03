@@ -16,7 +16,8 @@
 # Run the Python script
 srun hostname
 
-bash slurmjob0_install.sh
+# If you still need to setup the environment:
+# bash slurmjob0_install.sh
 
 # Initialize Conda for the current shell session
 # Replace '~/miniconda3' with the actual path to your Miniconda/Anaconda installation if different
