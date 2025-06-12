@@ -1,4 +1,3 @@
-import logging
 import sys
 import pickle
 import optuna
@@ -8,19 +7,13 @@ import json
 import torch
 import math 
 
-# Configure Optuna logger to output to stdout
+import logging
+# Configure basic logging to stdout with INFO level
+logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='[%(asctime)s - %(levelname)s - %(name)s] %(message)s')
+LOGGER = logging.getLogger(__name__)
+
+# Configure Optuna logger to output to stdout (this is good practice, kept for consistency)
 optuna.logging.get_logger("optuna").addHandler(logging.StreamHandler(sys.stdout))
-
-# Define study name and storage for Optuna
-study_name = "OptiNOVA_LLama-3.2-1B-Instruct_forget10"
-storage_name = "sqlite:///{}.db".format("HP_Opti_NOVA")
-
-# Create or load the Optuna study. 'minimize' direction is set as our objective is to minimize a combined metric.
-if os.path.exists("sampler_nova.pkl"):
-    restored_sampler = pickle.load(open("sampler_nova.pkl", "rb"))
-    study_nova = optuna.create_study(study_name=study_name, storage=storage_name, load_if_exists=True, sampler=restored_sampler, direction="minimize")
-else:
-    study_nova = optuna.create_study(study_name=study_name, storage=storage_name, load_if_exists=True, direction="minimize")
 
 # Constants for the experiment
 BASE_MODEL = "Llama-3.2-1B-Instruct"
@@ -32,28 +25,43 @@ HOLDOUT_SPLIT = "holdout10" # Used in eval pipeline
 # Path to reference retain logs, assuming they are downloaded via setup_data.py
 RETAIN_LOGS_PATH = f"saves/eval/tofu_{BASE_MODEL}_{RETAIN_SPLIT}/TOFU_EVAL.json"
 
-# Set HF_HOME environment variable for consistent caching across runs
-os.environ["HF_HOME"] = os.path.join(os.path.expanduser("~"), ".cache", "huggingface")
-
-# --- Phase 1: Get Metrics of BASE_MODEL ---
-print(f"--- Starting initial finetuning and evaluation of {BASE_MODEL} ---")
-
 # Assuming the setup_data.py was executed before
-initial_finetune_eval_output_dir = f"open-unlearning/saves/eval/tofu_{BASE_MODEL}_full/evals_{FORGET_SPLIT}"
+initial_finetune_eval_output_dir = f"saves/eval/tofu_{BASE_MODEL}_full/evals_{FORGET_SPLIT}"
 INITIAL_FINETUNE_SUMMARY_FILE_PATH = os.path.join(initial_finetune_eval_output_dir, "TOFU_SUMMARY.json")
 
-try:
-    # Load baseline metrics
-    if not os.path.exists(INITIAL_FINETUNE_SUMMARY_FILE_PATH):
-        raise FileNotFoundError(f"Initial finetune summary file not found: {INITIAL_FINETUNE_SUMMARY_FILE_PATH}")
-    with open(INITIAL_FINETUNE_SUMMARY_FILE_PATH, 'r') as f:
-        initial_metrics = json.load(f)
-    baseline_model_utility = initial_metrics.get("model_utility")
-    print(f"Initial Finetuned Model Utility: {baseline_model_utility}")
 
-except Exception as e:
-    print(f"Error during initial finetuning or evaluation: {e}")
-    sys.exit(1) # Exit if initial setup fails
+def optuna_setup():
+    # Define study name and storage for Optuna
+    study_name = "OptiNOVA_LLama-3.2-1B-Instruct_forget10"
+    storage_name = "sqlite:///{}.db".format("HP_Opti_NOVA")
+
+    # Create or load the Optuna study. 'minimize' direction is set as our objective is to minimize a combined metric.
+    if os.path.exists("sampler_nova.pkl"):
+        restored_sampler = pickle.load(open("sampler_nova.pkl", "rb"))
+        study_nova = optuna.create_study(study_name=study_name, storage=storage_name, load_if_exists=True, sampler=restored_sampler,)
+    else:
+        study_nova = optuna.create_study(study_name=study_name, storage=storage_name, load_if_exists=True,)
+
+    # Set HF_HOME environment variable for consistent caching across runs
+    os.environ["HF_HOME"] = os.path.join(os.path.expanduser("~"), ".cache", "huggingface")
+
+    # --- Phase 1: Get Metrics of BASE_MODEL ---
+    LOGGER.info(f"--- Grab the metrics for {BASE_MODEL} ---")
+
+    try:
+        # Load baseline metrics
+        if not os.path.exists(INITIAL_FINETUNE_SUMMARY_FILE_PATH):
+            raise FileNotFoundError(f"Initial finetune summary file not found: {INITIAL_FINETUNE_SUMMARY_FILE_PATH}")
+        with open(INITIAL_FINETUNE_SUMMARY_FILE_PATH, 'r') as f:
+            initial_metrics = json.load(f)
+        baseline_model_utility = initial_metrics.get("model_utility")
+        LOGGER.info(f"Initial Finetuned Model Utility: {baseline_model_utility}")
+
+    except Exception as e:
+        LOGGER.info(f"Error during initial finetuning or evaluation: {e}")
+        sys.exit(1) # Exit if initial setup fails
+    
+    return study_nova
 
 
 # --- Phase 2: Optuna Optimization Loop ---
@@ -85,7 +93,7 @@ def objective(trial):
         f"model={BASE_MODEL}",
         f"forget_split={FORGET_SPLIT}",
         f"retain_split={RETAIN_SPLIT}",
-        f"model.model_args.pretrained_model_name_or_path={#TODO}", # Use the initially finetuned model as starting point
+        f"model.model_args.pretrained_model_name_or_path={TODO}", # Use the initially finetuned model as starting point
         f"retain_logs_path={RETAIN_LOGS_PATH}",
         # Pass the Optuna suggested hyperparameters to the trainer's method_args
         f"trainer.method_args.noise_epochs={opt_noise_epochs}",
@@ -112,19 +120,19 @@ def objective(trial):
         f"retain_logs_path={RETAIN_LOGS_PATH}" # Path to reference retain logs for metrics like forget_quality
     ]
 
-    print(f"Running train command for trial {trial.number}: {' '.join(train_command)}")
+    LOGGER.info(f"Running train command for trial {trial.number}: {' '.join(train_command)}")
     try:
         # Execute the training command
         train_process = subprocess.run(train_command, check=False, capture_output=True, text=True)
         if train_process.returncode != 0:
-            print(f"Train command failed for trial {trial.number}. STDOUT:\n{train_process.stdout}\nSTDERR:\n{train_process.stderr}")
+            LOGGER.info(f"Train command failed for trial {trial.number}. STDOUT:\n{train_process.stdout}\nSTDERR:\n{train_process.stderr}")
             raise RuntimeError("Training process failed")
 
-        print(f"Running eval command for trial {trial.number}: {' '.join(eval_command)}")
+        LOGGER.info(f"Running eval command for trial {trial.number}: {' '.join(eval_command)}")
         # Execute the evaluation command
         eval_process = subprocess.run(eval_command, check=False, capture_output=True, text=True)
         if eval_process.returncode != 0:
-            print(f"Eval command failed for trial {trial.number}. STDOUT:\n{eval_process.stdout}\nSTDERR:\n{eval_process.stderr}")
+            LOGGER.info(f"Eval command failed for trial {trial.number}. STDOUT:\n{eval_process.stdout}\nSTDERR:\n{eval_process.stderr}")
             raise RuntimeError("Evaluation process failed")
 
         # Read the evaluation summary results
@@ -153,17 +161,25 @@ def objective(trial):
         # Calculate the objective value with the new function
         objective_value = forget_qa_prob + math.abs(baseline_model_utility - model_utility)
 
-        print(f"Trial {trial.number} completed. forget_Q_A_Prob: {forget_qa_prob}, model_utility: {model_utility}, Objective: {objective_value}")
+        LOGGER.info(f"Trial {trial.number} completed. forget_Q_A_Prob: {forget_qa_prob}, model_utility: {model_utility}, Objective: {objective_value}")
         return objective_value
 
     except Exception as e:
-        print(f"Trial {trial.number} failed due to an error: {e}")
+        LOGGER.info(f"Trial {trial.number} failed due to an error: {e}")
         # Return a very large value to penalize trials that fail or encounter errors
         return float('inf')
 
-# Run the optimization for 50 trials
-study_nova.optimize(objective, n_trials=50)
+def main():
+    # Call optuna_setup to initialize the study and get baseline metrics
+    study_nova = optuna_setup()
 
-# Save the Optuna sampler state for resuming the study later if needed
-with open("sampler_nova.pkl", "wb") as fout:
-    pickle.dump(study_nova.sampler, fout)
+    # Run the optimization for 50 trials
+    # study_nova.optimize(objective, n_trials=50)
+
+    # Save the Optuna sampler state for resuming the study later if needed
+    # with open("sampler_nova.pkl", "wb") as fout:
+    #     pickle.dump(study_nova.sampler, fout)
+
+if __name__ == "__main__":
+    LOGGER.info("Starting the Hyperparameter Tuning")
+    main()

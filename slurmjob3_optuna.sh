@@ -16,7 +16,7 @@
 srun hostname
 
 # If you still need to setup the environment:
-bash slurmjob0_install.sh
+# bash slurmjob0_install.sh
 
 # Initialize Conda for the current shell session
 # Replace '~/miniconda3' with the actual path to your Miniconda/Anaconda installation if different
@@ -40,7 +40,6 @@ echo "Master Port: $MASTER_PORT"
 export HF_HOME=$HOME/.cache/huggingface
 
 # Run the Optuna optimization script.
-# The 'nova_optuna.py' script itself will call 'python src/train.py' and 'python src/eval.py'.
 python nova_optuna.py
 
 echo "Slurm job finished at: $(date)"
