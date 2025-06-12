@@ -31,3 +31,16 @@ conda activate /fast_storage/kastler/miniconda3/envs/unlearning
 conda info --envs
 
 ### Now you may start your operations below ###
+
+# Set MASTER_PORT if needed for internal processes that might use it, though direct python calls are used now.
+export MASTER_PORT=$(python -c "import socket; s=socket.socket(); s.bind(('', 0)); print(s.getsockname()[1]); s.close()")
+echo "Master Port: $MASTER_PORT"
+
+# Ensure HF_HOME is set for consistent caching
+export HF_HOME=$HOME/.cache/huggingface
+
+# Run the Optuna optimization script.
+# The 'nova_optuna.py' script itself will call 'python src/train.py' and 'python src/eval.py'.
+python nova_optuna.py
+
+echo "Slurm job finished at: $(date)"
