@@ -9,15 +9,11 @@ import math
 
 import logging
 # Configure basic logging to stdout with INFO level
-logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='[%(asctime)s - %(levelname)s - %(name)s] %(message)s')
 LOGGER = logging.getLogger(__name__)
-
-# Configure Optuna logger to output to stdout (this is good practice, kept for consistency)
-optuna.logging.get_logger("optuna").addHandler(logging.StreamHandler(sys.stdout))
 
 # Constants for the experiment
 BASE_MODEL = "Llama-3.2-1B-Instruct"
-# Out of the following models: [TODO]
+# Out of the following models:
 FINETUNED_MODEL_OUTPUT_PATH = f"open-unlearning/tofu_{BASE_MODEL}_full" # Path to store the initially finetuned model
 FORGET_SPLIT = "forget10"
 RETAIN_SPLIT = "retain90"
@@ -93,7 +89,6 @@ def objective(trial):
         f"model={BASE_MODEL}",
         f"forget_split={FORGET_SPLIT}",
         f"retain_split={RETAIN_SPLIT}",
-        f"model.model_args.pretrained_model_name_or_path={TODO}", # Use the initially finetuned model as starting point
         f"retain_logs_path={RETAIN_LOGS_PATH}",
         # Pass the Optuna suggested hyperparameters to the trainer's method_args
         f"trainer.method_args.noise_epochs={opt_noise_epochs}",
@@ -102,23 +97,20 @@ def objective(trial):
         f"trainer.method_args.impair_gamma={opt_impair_gamma}",
         f"trainer.method_args.repair_alpha={opt_repair_alpha}",
         f"paths.output_dir={unlearn_output_dir}", # Set dynamic output path for the model checkpoint
-        "trainer.args.ddp_find_unused_parameters=false", # Ensure compatibility with non-accelerate
-        "trainer.args.gradient_checkpointing=false", # Ensure compatibility with non-accelerate
     ]
-
 
     # Construct the evaluation command
-    eval_command = [
-        "python", "src/eval.py",
-        "experiment=eval/tofu/default.yaml", # Use the default TOFU evaluation config
-        f"forget_split={FORGET_SPLIT}",
-        f"holdout_split={HOLDOUT_SPLIT}",
-        f"model={BASE_MODEL}",
-        f"task_name={trial_task_name}",
-        f"model.model_args.pretrained_model_name_or_path={unlearn_output_dir}", # Path to the unlearned model from training
-        f"paths.output_dir={eval_output_dir}", # Set dynamic output path for evaluation logs
-        f"retain_logs_path={RETAIN_LOGS_PATH}" # Path to reference retain logs for metrics like forget_quality
-    ]
+    # eval_command = [
+    #     "python", "src/eval.py",
+    #     "experiment=eval/tofu/default.yaml", # Use the default TOFU evaluation config
+    #     f"forget_split={FORGET_SPLIT}",
+    #     f"holdout_split={HOLDOUT_SPLIT}",
+    #     f"model={BASE_MODEL}",
+    #     f"task_name={trial_task_name}",
+    #     f"model.model_args.pretrained_model_name_or_path={unlearn_output_dir}", # Path to the unlearned model from training
+    #     f"paths.output_dir={eval_output_dir}", # Set dynamic output path for evaluation logs
+    #     f"retain_logs_path={RETAIN_LOGS_PATH}" # Path to reference retain logs for metrics like forget_quality
+    # ]
 
     LOGGER.info(f"Running train command for trial {trial.number}: {' '.join(train_command)}")
     try:
@@ -173,12 +165,12 @@ def main():
     # Call optuna_setup to initialize the study and get baseline metrics
     study_nova = optuna_setup()
 
-    # Run the optimization for 50 trials
-    # study_nova.optimize(objective, n_trials=50)
+    # Start Trials
+    study_nova.optimize(objective, n_trials=1)
 
     # Save the Optuna sampler state for resuming the study later if needed
-    # with open("sampler_nova.pkl", "wb") as fout:
-    #     pickle.dump(study_nova.sampler, fout)
+    with open("sampler_nova.pkl", "wb") as fout:
+        pickle.dump(study_nova.sampler, fout)
 
 if __name__ == "__main__":
     LOGGER.info("Starting the Hyperparameter Tuning")

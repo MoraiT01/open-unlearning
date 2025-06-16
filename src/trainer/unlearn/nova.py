@@ -107,7 +107,7 @@ class NOVA(UnlearnTrainer):
         
         # Restore model training state
         model.train(original_training_state)
-        print(f"--- Anti-pattern Training is done ---")
+        logger.info(f"--- Anti-pattern Training is done ---")
         # Return the optimized perturbation tensor for the current batch
         return anti_pattern_instance.pattern.detach()
 
