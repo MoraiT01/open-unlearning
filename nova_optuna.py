@@ -9,7 +9,7 @@ import math
 
 import logging
 # Configure basic logging to stdout with INFO level
-LOGGER = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 # Constants for the experiment
 BASE_MODEL = "Llama-3.2-1B-Instruct"
@@ -42,7 +42,7 @@ def optuna_setup():
     os.environ["HF_HOME"] = os.path.join(os.path.expanduser("~"), ".cache", "huggingface")
 
     # --- Phase 1: Get Metrics of BASE_MODEL ---
-    LOGGER.info(f"--- Grab the metrics for {BASE_MODEL} ---")
+    logger.info(f"--- Grab the metrics for {BASE_MODEL} ---")
 
     try:
         # Load baseline metrics
@@ -51,10 +51,10 @@ def optuna_setup():
         with open(INITIAL_FINETUNE_SUMMARY_FILE_PATH, 'r') as f:
             initial_metrics = json.load(f)
         baseline_model_utility = initial_metrics.get("model_utility")
-        LOGGER.info(f"Initial Finetuned Model Utility: {baseline_model_utility}")
+        logger.info(f"Initial Finetuned Model Utility: {baseline_model_utility}")
 
     except Exception as e:
-        LOGGER.info(f"Error during initial finetuning or evaluation: {e}")
+        logger.info(f"Error during initial finetuning or evaluation: {e}")
         sys.exit(1) # Exit if initial setup fails
     
     return study_nova
@@ -112,19 +112,19 @@ def objective(trial):
     #     f"retain_logs_path={RETAIN_LOGS_PATH}" # Path to reference retain logs for metrics like forget_quality
     # ]
 
-    LOGGER.info(f"Running train command for trial {trial.number}: {' '.join(train_command)}")
+    logger.info(f"Running train command for trial {trial.number}: {' '.join(train_command)}")
     try:
         # Execute the training command
         train_process = subprocess.run(train_command, check=False, capture_output=True, text=True)
         if train_process.returncode != 0:
-            LOGGER.info(f"Train command failed for trial {trial.number}. STDOUT:\n{train_process.stdout}\nSTDERR:\n{train_process.stderr}")
+            logger.info(f"Train command failed for trial {trial.number}. STDOUT:\n{train_process.stdout}\nSTDERR:\n{train_process.stderr}")
             raise RuntimeError("Training process failed")
 
-        LOGGER.info(f"Running eval command for trial {trial.number}: {' '.join(eval_command)}")
+        logger.info(f"Running eval command for trial {trial.number}: {' '.join(eval_command)}")
         # Execute the evaluation command
         eval_process = subprocess.run(eval_command, check=False, capture_output=True, text=True)
         if eval_process.returncode != 0:
-            LOGGER.info(f"Eval command failed for trial {trial.number}. STDOUT:\n{eval_process.stdout}\nSTDERR:\n{eval_process.stderr}")
+            logger.info(f"Eval command failed for trial {trial.number}. STDOUT:\n{eval_process.stdout}\nSTDERR:\n{eval_process.stderr}")
             raise RuntimeError("Evaluation process failed")
 
         # Read the evaluation summary results
@@ -153,11 +153,11 @@ def objective(trial):
         # Calculate the objective value with the new function
         objective_value = forget_qa_prob + math.abs(baseline_model_utility - model_utility)
 
-        LOGGER.info(f"Trial {trial.number} completed. forget_Q_A_Prob: {forget_qa_prob}, model_utility: {model_utility}, Objective: {objective_value}")
+        logger.info(f"Trial {trial.number} completed. forget_Q_A_Prob: {forget_qa_prob}, model_utility: {model_utility}, Objective: {objective_value}")
         return objective_value
 
     except Exception as e:
-        LOGGER.info(f"Trial {trial.number} failed due to an error: {e}")
+        logger.info(f"Trial {trial.number} failed due to an error: {e}")
         # Return a very large value to penalize trials that fail or encounter errors
         return float('inf')
 
@@ -173,5 +173,5 @@ def main():
         pickle.dump(study_nova.sampler, fout)
 
 if __name__ == "__main__":
-    LOGGER.info("Starting the Hyperparameter Tuning")
+    logger.info("Starting the Hyperparameter Tuning")
     main()
