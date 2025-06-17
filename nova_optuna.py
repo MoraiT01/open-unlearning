@@ -120,12 +120,12 @@ def objective(trial):
             logger.info(f"Train command failed for trial {trial.number}. STDOUT:\n{train_process.stdout}\nSTDERR:\n{train_process.stderr}")
             raise RuntimeError("Training process failed")
 
-        logger.info(f"Running eval command for trial {trial.number}: {' '.join(eval_command)}")
-        # Execute the evaluation command
-        eval_process = subprocess.run(eval_command, check=False, capture_output=True, text=True)
-        if eval_process.returncode != 0:
-            logger.info(f"Eval command failed for trial {trial.number}. STDOUT:\n{eval_process.stdout}\nSTDERR:\n{eval_process.stderr}")
-            raise RuntimeError("Evaluation process failed")
+        # logger.info(f"Running eval command for trial {trial.number}: {' '.join(eval_command)}")
+        # # Execute the evaluation command
+        # eval_process = subprocess.run(eval_command, check=False, capture_output=True, text=True)
+        # if eval_process.returncode != 0:
+        #     logger.info(f"Eval command failed for trial {trial.number}. STDOUT:\n{eval_process.stdout}\nSTDERR:\n{eval_process.stderr}")
+        #     raise RuntimeError("Evaluation process failed")
 
         # Read the evaluation summary results
         if not os.path.exists(summary_file_path):
