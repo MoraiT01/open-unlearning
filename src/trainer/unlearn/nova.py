@@ -107,7 +107,7 @@ class NOVA(UnlearnTrainer):
         
         # Restore model training state
         model.train(original_training_state)
-        logger.info(f"--- Anti-pattern Training is done ---")
+        logger.info(f"Anti-pattern Training is done; Final Loss: {anti_pattern_loss}")
         # Return the optimized perturbation tensor for the current batch
         return anti_pattern_instance.pattern.detach()
 
@@ -161,5 +161,6 @@ class NOVA(UnlearnTrainer):
 
         # Combine losses for the main model's update
         loss = self.gamma * forget_loss + self.alpha * retain_loss
-
+        logger.info(f"Gamma: {self.gamma} | Forget Loss: {forget_loss} | Alpha: {self.alpha} | Retain Loss: {retain_loss} || Final Loss: {loss}")
+        
         return (loss, forget_outputs) if return_outputs else loss

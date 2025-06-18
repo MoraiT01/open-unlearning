@@ -36,5 +36,5 @@ pip install -r requirements.txt
 pip install .[lm_eval]
 pip install --no-build-isolation flash-attn==2.6.3
 
-pip install optuna
-pip install optuna-dashboard
+pip install optuna==4.3.0
+pip install optuna-dashboard==0.18.0

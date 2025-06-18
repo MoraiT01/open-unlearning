@@ -8,8 +8,25 @@ import torch
 import math 
 
 import logging
-# Configure basic logging to stdout with INFO level
-logger = logging.getLogger(__name__)
+import os # Import os for path manipulation
+
+# Configure a logger for nova_optuna.py
+logger = logging.getLogger("HPTUNER")
+logger.setLevel(logging.INFO) # Set the logging level (e.g., INFO, DEBUG, WARNING)
+
+# Create a formatter
+formatter = logging.Formatter('[%(asctime)s][%(name)s][%(levelname)s] - %(message)s')
+
+# Create a file handler
+log_file_path = "logs/optuna_optimization.log" # You can make this dynamic if needed
+file_handler = logging.FileHandler(log_file_path, mode="a")
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+
+# Optionally, add a stream handler to output to console as well
+stream_handler = logging.StreamHandler()
+stream_handler.setFormatter(formatter)
+logger.addHandler(stream_handler)
 
 # Constants for the experiment
 BASE_MODEL = "Llama-3.2-1B-Instruct"
@@ -28,7 +45,7 @@ INITIAL_FINETUNE_SUMMARY_FILE_PATH = os.path.join(initial_finetune_eval_output_d
 
 def optuna_setup():
     # Define study name and storage for Optuna
-    study_name = "OptiNOVA_LLama-3.2-1B-Instruct_forget10"
+    study_name = f"OptiNOVA_LLama-3.2-1B-Instruct_{FORGET_SPLIT}"
     storage_name = "sqlite:///{}.db".format("HP_Opti_NOVA")
 
     # Create or load the Optuna study. 'minimize' direction is set as our objective is to minimize a combined metric.
@@ -54,7 +71,7 @@ def optuna_setup():
         logger.info(f"Initial Finetuned Model Utility: {baseline_model_utility}")
 
     except Exception as e:
-        logger.info(f"Error during initial finetuning or evaluation: {e}")
+        logger.error(f"Error during initial finetuning or evaluation: {e}")
         sys.exit(1) # Exit if initial setup fails
     
     return study_nova
@@ -64,10 +81,10 @@ def optuna_setup():
 def objective(trial):
     # Hyperparameters to be optimized by Optuna for the NOVA algorithm
     opt_noise_epochs = trial.suggest_int("noise_epochs", 1, 10)
-    opt_noise_lr = trial.suggest_float("noise_lr", 0.001, 0.5, log=True) # Log scale for learning rate
-    opt_regularization_term = trial.suggest_float("regularization_term", 0.001, 0.5, log=True) # Log scale for regularization
-    opt_impair_gamma = trial.suggest_float("impair_gamma", 0.1, 10.0, log=True) # Log scale for gamma
-    opt_repair_alpha = trial.suggest_float("repair_alpha", 0.1, 10.0, log=True) # Log scale for alpha
+    opt_noise_lr = trial.suggest_float("noise_lr", 0.001, 1.0, log=True) # Log scale for learning rate
+    opt_regularization_term = trial.suggest_float("regularization_term", 0.001, 10.0, log=True) # Log scale for regularization
+    opt_impair_gamma = trial.suggest_float("impair_gamma", 0.01, 10.0, log=True) # Log scale for gamma
+    opt_repair_alpha = trial.suggest_float("repair_alpha", 0.01, 10.0, log=True) # Log scale for alpha
 
     # Generate a unique task name for the current trial to store results separately
     trial_task_name = f"nova_trial_{trial.number}_ne{opt_noise_epochs}_nlr{opt_noise_lr:.6f}_reg{opt_regularization_term:.6f}_g{opt_impair_gamma:.2f}_a{opt_repair_alpha:.2f}"
@@ -100,32 +117,34 @@ def objective(trial):
     ]
 
     # Construct the evaluation command
-    # eval_command = [
-    #     "python", "src/eval.py",
-    #     "experiment=eval/tofu/default.yaml", # Use the default TOFU evaluation config
-    #     f"forget_split={FORGET_SPLIT}",
-    #     f"holdout_split={HOLDOUT_SPLIT}",
-    #     f"model={BASE_MODEL}",
-    #     f"task_name={trial_task_name}",
-    #     f"model.model_args.pretrained_model_name_or_path={unlearn_output_dir}", # Path to the unlearned model from training
-    #     f"paths.output_dir={eval_output_dir}", # Set dynamic output path for evaluation logs
-    #     f"retain_logs_path={RETAIN_LOGS_PATH}" # Path to reference retain logs for metrics like forget_quality
-    # ]
+    eval_command = [
+        "python", "src/eval.py",
+        "experiment=eval/tofu/default.yaml", # Use the default TOFU evaluation config
+        f"forget_split={FORGET_SPLIT}",
+        f"holdout_split={HOLDOUT_SPLIT}",
+        f"model={BASE_MODEL}",
+        f"task_name={trial_task_name}",
+        f"model.model_args.pretrained_model_name_or_path={unlearn_output_dir}", # Path to the unlearned model from training
+        f"paths.output_dir={eval_output_dir}", # Set dynamic output path for evaluation logs
+        f"retain_logs_path={RETAIN_LOGS_PATH}" # Path to reference retain logs for metrics like forget_quality
+    ]
 
-    logger.info(f"Running train command for trial {trial.number}: {' '.join(train_command)}")
+    logger.info(f"### Starting Training Process for Trial {trial.number} ###")
+    logger.info(f"{' '.join(train_command)}")
     try:
         # Execute the training command
         train_process = subprocess.run(train_command, check=False, capture_output=True, text=True)
         if train_process.returncode != 0:
-            logger.info(f"Train command failed for trial {trial.number}. STDOUT:\n{train_process.stdout}\nSTDERR:\n{train_process.stderr}")
+            logger.error(f"Train command failed for trial {trial.number}. STDOUT:\n{train_process.stdout}\nSTDERR:\n{train_process.stderr}")
             raise RuntimeError("Training process failed")
 
-        # logger.info(f"Running eval command for trial {trial.number}: {' '.join(eval_command)}")
-        # # Execute the evaluation command
-        # eval_process = subprocess.run(eval_command, check=False, capture_output=True, text=True)
-        # if eval_process.returncode != 0:
-        #     logger.info(f"Eval command failed for trial {trial.number}. STDOUT:\n{eval_process.stdout}\nSTDERR:\n{eval_process.stderr}")
-        #     raise RuntimeError("Evaluation process failed")
+        logger.info(f"### Starting Evaluation Process for Trial {trial.number} ###")
+        logger.info(f"{' '.join(eval_command)}")
+        # Execute the evaluation command
+        eval_process = subprocess.run(eval_command, check=False, capture_output=True, text=True)
+        if eval_process.returncode != 0:
+            logger.error(f"Eval command failed for trial {trial.number}. STDOUT:\n{eval_process.stdout}\nSTDERR:\n{eval_process.stderr}")
+            raise RuntimeError("Evaluation process failed")
 
         # Read the evaluation summary results
         if not os.path.exists(summary_file_path):
@@ -151,13 +170,13 @@ def objective(trial):
         # Lower forget_Q_A_Prob is better (more unlearning), higher model_utility is better (more utility retained).
         # So, minimizing this difference encourages both.
         # Calculate the objective value with the new function
-        objective_value = forget_qa_prob + math.abs(baseline_model_utility - model_utility)
+        objective_value = forget_qa_prob + abs(baseline_model_utility - model_utility)
 
         logger.info(f"Trial {trial.number} completed. forget_Q_A_Prob: {forget_qa_prob}, model_utility: {model_utility}, Objective: {objective_value}")
         return objective_value
 
     except Exception as e:
-        logger.info(f"Trial {trial.number} failed due to an error: {e}")
+        logger.warning(f"Trial {trial.number} failed due to an error: {e}; Returning 'inf' loss")
         # Return a very large value to penalize trials that fail or encounter errors
         return float('inf')
 
@@ -173,5 +192,5 @@ def main():
         pickle.dump(study_nova.sampler, fout)
 
 if __name__ == "__main__":
-    logger.info("Starting the Hyperparameter Tuning")
+    logger.info("Starting the Hyperparameter Tuning process for Optuna.")
     main()
