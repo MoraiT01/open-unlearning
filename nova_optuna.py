@@ -21,6 +21,7 @@ HOLDOUT_SPLIT = "holdout10" # Used in eval pipeline
 # Path to reference retain logs, assuming they are downloaded via setup_data.py
 RETAIN_LOGS_PATH = f"saves/eval/tofu_{BASE_MODEL}_{RETAIN_SPLIT}/TOFU_EVAL.json"
 MAXIMIZE_FORGETTING = False
+KEEP_MODEL_TENSORS = False
 
 # Assuming the setup_data.py was executed before
 initial_finetune_eval_output_dir = f"saves/eval/tofu_{BASE_MODEL}_full/evals_{FORGET_SPLIT}"
@@ -225,10 +226,26 @@ def objective(trial):
         # Store Model Utility
         trial.set_user_attr("Model Utility", model_utility)
 
+        # Delete the model if needed
+        if not KEEP_MODEL_TENSORS:
+            # Path to the model.tensors file
+            model_tensors_file_path = os.path.join(unlearn_output_dir, "model.safetensors")
+
+            # --- Add these lines for cleanup ---
+            if os.path.exists(model_tensors_file_path):
+                try:
+                    os.remove(model_tensors_file_path)
+                    logger.info(f"Successfully deleted {model_tensors_file_path} for trial {trial.number}.")
+                except OSError as e:
+                    logger.warning(f"Error deleting {model_tensors_file_path} for trial {trial.number}: {e}")
+            # --- End of cleanup lines ---
+
     except Exception as e:
         logger.warning(f"Trial {trial.number} failed due to an error: {e}; Returning '-inf' loss")
         # Return a very large value to penalize trials that fail or encounter errors
         return float('-inf')
+
+    return objective_value
 
 def main(optuna_tuning: bool = True):
     # Call optuna_setup to initialize the study and get baseline metrics
