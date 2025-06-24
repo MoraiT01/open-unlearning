@@ -5,28 +5,11 @@ import os
 import subprocess
 import json
 import torch
-import math 
+import math
+import time
 
 import logging
 import os # Import os for path manipulation
-
-# Configure a logger for nova_optuna.py
-logger = logging.getLogger("HPTUNER")
-logger.setLevel(logging.INFO) # Set the logging level (e.g., INFO, DEBUG, WARNING)
-
-# Create a formatter
-formatter = logging.Formatter('[%(asctime)s][%(name)s][%(levelname)s] - %(message)s')
-
-# Create a file handler
-log_file_path = "logs/optuna_optimization.log" # You can make this dynamic if needed
-file_handler = logging.FileHandler(log_file_path, mode="a")
-file_handler.setFormatter(formatter)
-logger.addHandler(file_handler)
-
-# Optionally, add a stream handler to output to console as well
-stream_handler = logging.StreamHandler()
-stream_handler.setFormatter(formatter)
-logger.addHandler(stream_handler)
 
 # Constants for the experiment
 BASE_MODEL = "Llama-3.2-1B-Instruct"
@@ -37,23 +20,47 @@ RETAIN_SPLIT = "retain90"
 HOLDOUT_SPLIT = "holdout10" # Used in eval pipeline
 # Path to reference retain logs, assuming they are downloaded via setup_data.py
 RETAIN_LOGS_PATH = f"saves/eval/tofu_{BASE_MODEL}_{RETAIN_SPLIT}/TOFU_EVAL.json"
+MAXIMIZE_FORGETTING = False
 
 # Assuming the setup_data.py was executed before
 initial_finetune_eval_output_dir = f"saves/eval/tofu_{BASE_MODEL}_full/evals_{FORGET_SPLIT}"
 INITIAL_FINETUNE_SUMMARY_FILE_PATH = os.path.join(initial_finetune_eval_output_dir, "TOFU_SUMMARY.json")
 
 
+# Configure a logger for nova_optuna.py
+logger = logging.getLogger("HPTUNER")
+logger.setLevel(logging.INFO) # Set the logging level (e.g., INFO, DEBUG, WARNING)
+
+# Create a formatter
+formatter = logging.Formatter('[%(asctime)s][%(name)s][%(levelname)s] - %(message)s')
+
+# Create a file handler
+log_file_path = f"logs/opti_{BASE_MODEL}_{FORGET_SPLIT}.log" # You can make this dynamic if needed
+if MAXIMIZE_FORGETTING:
+    log_file_path = f"logs/opti_{BASE_MODEL}_{FORGET_SPLIT}_maxf.log" 
+file_handler = logging.FileHandler(log_file_path, mode="a")
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+
+# Optionally, add a stream handler to output to console as well
+stream_handler = logging.StreamHandler()
+stream_handler.setFormatter(formatter)
+logger.addHandler(stream_handler)
+
 def optuna_setup():
     # Define study name and storage for Optuna
-    study_name = f"OptiNOVA_LLama-3.2-1B-Instruct_{FORGET_SPLIT}"
+
+    study_name = f"OptiNOVA_{BASE_MODEL}_{FORGET_SPLIT}"
+    if MAXIMIZE_FORGETTING:
+        study_name = f"OptiNOVA_{BASE_MODEL}_{FORGET_SPLIT}_maxforgetting"
     storage_name = "sqlite:///{}.db".format("HP_Opti_NOVA")
 
     # Create or load the Optuna study. 'minimize' direction is set as our objective is to minimize a combined metric.
     if os.path.exists("sampler_nova.pkl"):
         restored_sampler = pickle.load(open("sampler_nova.pkl", "rb"))
-        study_nova = optuna.create_study(study_name=study_name, storage=storage_name, load_if_exists=True, sampler=restored_sampler,)
+        study_nova = optuna.create_study(study_name=study_name, storage=storage_name, direction="maximize", load_if_exists=True, sampler=restored_sampler,)
     else:
-        study_nova = optuna.create_study(study_name=study_name, storage=storage_name, load_if_exists=True,)
+        study_nova = optuna.create_study(study_name=study_name, storage=storage_name, direction="maximize", load_if_exists=True,)
 
     # Set HF_HOME environment variable for consistent caching across runs
     os.environ["HF_HOME"] = os.path.join(os.path.expanduser("~"), ".cache", "huggingface")
@@ -76,19 +83,43 @@ def optuna_setup():
     
     return study_nova
 
+def scale_to_0_1(original_value, x1, y1):
+    """
+    Scales a value from the interval [x1, y1] to the interval [0, 1].
+
+    Args:
+        original_value: The value to be scaled.
+        x1: The lower bound of the original interval.
+        y1: The upper bound of the original interval.
+
+    Returns:
+        The scaled value between 0 and 1.
+
+    Raises:
+        ValueError: If y1 is not greater than x1 (to avoid division by zero).
+    """
+    if y1 <= x1:
+        raise ValueError("y1 must be greater than x1 for scaling.")
+    
+    scaled_value = (original_value - x1) / (y1 - x1)
+    return scaled_value
 
 # --- Phase 2: Optuna Optimization Loop ---
 def objective(trial):
+    start_time = time.time()
+
     # Hyperparameters to be optimized by Optuna for the NOVA algorithm
-    opt_noise_epochs = trial.suggest_int("noise_epochs", 1, 10)
-    opt_noise_lr = trial.suggest_float("noise_lr", 0.001, 1.0, log=True) # Log scale for learning rate
-    opt_regularization_term = trial.suggest_float("regularization_term", 0.001, 10.0, log=True) # Log scale for regularization
-    opt_impair_gamma = trial.suggest_float("impair_gamma", 0.01, 10.0, log=True) # Log scale for gamma
-    opt_repair_alpha = trial.suggest_float("repair_alpha", 0.01, 10.0, log=True) # Log scale for alpha
+    opt_noise_epochs = trial.suggest_int("noise_epochs", 1, 100)
+    opt_noise_lr = trial.suggest_float("noise_lr", 0.000001, 1.0, log=True) # Log scale for learning rate
+    opt_regularization_term = trial.suggest_float("regularization_term", 0.000001, 1.0, log=True) # Log scale for regularization
+    opt_impair_gamma = trial.suggest_float("impair_gamma", 0.0001, 10.0, log=True) # Log scale for gamma
+    opt_repair_alpha = trial.suggest_float("repair_alpha", 0.000001, 10.0, log=True) # Log scale for alpha
 
     # Generate a unique task name for the current trial to store results separately
-    trial_task_name = f"nova_trial_{trial.number}_ne{opt_noise_epochs}_nlr{opt_noise_lr:.6f}_reg{opt_regularization_term:.6f}_g{opt_impair_gamma:.2f}_a{opt_repair_alpha:.2f}"
-    unlearn_output_dir = f"saves/unlearn/{trial_task_name}"
+    trial_task_name = f"nova_trial_{trial.number}" # _ne{opt_noise_epochs}_nlr{opt_noise_lr:.5f}_reg{opt_regularization_term:.5f}_g{opt_impair_gamma:.5f}_a{opt_repair_alpha:.5f}"
+    unlearn_output_dir = f"saves/unlearn/default/{BASE_MODEL}/{FORGET_SPLIT}/{trial_task_name}"
+    if MAXIMIZE_FORGETTING:
+        unlearn_output_dir = f"saves/unlearn/maxforgetting/{BASE_MODEL}/{FORGET_SPLIT}/{trial_task_name}"
     eval_output_dir = f"{unlearn_output_dir}/evals"
     summary_file_path = os.path.join(eval_output_dir, "TOFU_SUMMARY.json")
 
@@ -115,6 +146,7 @@ def objective(trial):
         f"trainer.method_args.repair_alpha={opt_repair_alpha}",
         f"paths.output_dir={unlearn_output_dir}", # Set dynamic output path for the model checkpoint
     ]
+    training_datetime = time.time()
 
     # Construct the evaluation command
     eval_command = [
@@ -154,38 +186,57 @@ def objective(trial):
             metrics = json.load(f)
 
         # Extract the desired metrics from the summary
-        forget_qa_prob = metrics.get("forget_Q_A_Prob")
+        # forget_Q_A_Prob = metrics.get("forget_Q_A_Prob")
+        forget_quality = metrics.get("forget_quality")
         model_utility = metrics.get("model_utility")
 
-        if forget_qa_prob is None or model_utility is None:
-            raise ValueError("Required metrics (forget_Q_A_Prob or model_utility) not found in summary file.")
+        if forget_quality is None or model_utility is None:
+            raise ValueError("Required metrics (forget_quality or model_utility) not found in summary file.")
 
         if not os.path.exists(INITIAL_FINETUNE_SUMMARY_FILE_PATH):
             raise FileNotFoundError(f"Initial finetune summary file not found: {INITIAL_FINETUNE_SUMMARY_FILE_PATH}")
         with open(INITIAL_FINETUNE_SUMMARY_FILE_PATH, 'r') as f:
             initial_metrics = json.load(f)
+        baseline_forget_quality = initial_metrics.get("forget_quality")
         baseline_model_utility = initial_metrics.get("model_utility")
 
-        # Define the objective value to minimize: (forget_Q_A_Prob - model_utility)
-        # Lower forget_Q_A_Prob is better (more unlearning), higher model_utility is better (more utility retained).
-        # So, minimizing this difference encourages both.
-        # Calculate the objective value with the new function
-        objective_value = forget_qa_prob + abs(baseline_model_utility - model_utility)
+        delta_model_utility = abs(baseline_model_utility - model_utility)
 
-        logger.info(f"Trial {trial.number} completed. forget_Q_A_Prob: {forget_qa_prob}, model_utility: {model_utility}, Objective: {objective_value}")
-        return objective_value
+        scaled_forget_quality = scale_to_0_1(forget_quality, 0, 1)
+        scaled_delta_model_utility  = scale_to_0_1(delta_model_utility, 0, max(baseline_model_utility, 1 - baseline_model_utility)) 
+
+        # Define the objective value to maximize: (forget_quality - delta_model_utility)
+        # higher forget_quality is better (more unlearning), lower difference in model_utility is better (more original utility retained).
+        # So, maximizing this difference encourages both.
+        # Calculate the objective value with the new function
+        # For Testing on "MaxForgetting" we remove the model utility term
+        objective_value = scaled_forget_quality - scaled_delta_model_utility
+        if MAXIMIZE_FORGETTING:
+            objective_value = scaled_forget_quality 
+
+        logger.info(f"Trial {trial.number} completed. forget_quality: {forget_quality}, model_utility: {model_utility}, Objective: {objective_value}")
+        
+        # --- Report non-looping, trial-specific information ---
+        # Store training time
+        training_time = training_datetime - start_time
+        trial.set_user_attr("Training Time (secs)", training_time)
+        # Store Forget Quality
+        trial.set_user_attr("Forget Quality", forget_quality)
+        # Store Model Utility
+        trial.set_user_attr("Model Utility", model_utility)
 
     except Exception as e:
-        logger.warning(f"Trial {trial.number} failed due to an error: {e}; Returning 'inf' loss")
+        logger.warning(f"Trial {trial.number} failed due to an error: {e}; Returning '-inf' loss")
         # Return a very large value to penalize trials that fail or encounter errors
-        return float('inf')
+        return float('-inf')
 
-def main():
+def main(optuna_tuning: bool = True):
     # Call optuna_setup to initialize the study and get baseline metrics
     study_nova = optuna_setup()
 
     # Start Trials
-    study_nova.optimize(objective, n_trials=1)
+    if optuna_tuning:
+        study_nova.optimize(objective, n_trials=1)
 
     # Save the Optuna sampler state for resuming the study later if needed
     with open("sampler_nova.pkl", "wb") as fout:
