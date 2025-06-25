@@ -57,6 +57,7 @@ def optuna_setup():
     storage_name = "sqlite:///{}.db".format("HP_Opti_NOVA")
 
     # Create or load the Optuna study. 'minimize' direction is set as our objective is to minimize a combined metric.
+    sampler_name = f"sampler_nova_{BASE_MODEL}_{FORGET_SPLIT}_maxf.pkl" if MAXIMIZE_FORGETTING == True else f"sampler_nova_{BASE_MODEL}_{FORGET_SPLIT}.pkl"
     if os.path.exists("sampler_nova.pkl"):
         restored_sampler = pickle.load(open("sampler_nova.pkl", "rb"))
         study_nova = optuna.create_study(study_name=study_name, storage=storage_name, direction="maximize", load_if_exists=True, sampler=restored_sampler,)
@@ -82,7 +83,7 @@ def optuna_setup():
         logger.error(f"Error during initial finetuning or evaluation: {e}")
         sys.exit(1) # Exit if initial setup fails
     
-    return study_nova
+    return study_nova, sampler_name
 
 def scale_to_0_1(original_value, x1, y1):
     """
@@ -258,14 +259,14 @@ def objective(trial):
 
 def main(optuna_tuning: bool = True):
     # Call optuna_setup to initialize the study and get baseline metrics
-    study_nova = optuna_setup()
+    study_nova, sampler_name = optuna_setup()
 
     # Start Trials
     if optuna_tuning:
         study_nova.optimize(objective, n_trials=1)
 
     # Save the Optuna sampler state for resuming the study later if needed
-    with open("sampler_nova.pkl", "wb") as fout:
+    with open(sampler_name, "wb") as fout:
         pickle.dump(study_nova.sampler, fout)
 
 if __name__ == "__main__":
