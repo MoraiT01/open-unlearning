@@ -225,7 +225,7 @@ def objective(trial):
         if MAXIMIZE_FORGETTING:
             objective_value = scaled_forget_quality 
 
-        logger.info(f"Trial {trial.number} completed. forget_quality: {scaled_forget_quality}, model_utility: {scaled_delta_model_utility}, Objective: {objective_value}")
+        logger.info(f"Trial {trial.number} completed. forget_quality: {scaled_forget_quality}, delta_model_utility: {scaled_delta_model_utility}, Objective: {objective_value}")
         
         # --- Report non-looping, trial-specific information ---
         # Store training time
