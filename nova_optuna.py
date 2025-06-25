@@ -13,7 +13,7 @@ import os # Import os for path manipulation
 
 # Constants for the experiment
 BASE_MODEL = "Llama-3.2-1B-Instruct"
-# Out of the following models:
+# Out of the following models: [Llama-3.1-8B-Instruct, Llama-3.2-3B-Instruct, Llama-3.2-1B-Instruct]
 FINETUNED_MODEL_OUTPUT_PATH = f"open-unlearning/tofu_{BASE_MODEL}_full" # Path to store the initially finetuned model
 FORGET_SPLIT = "forget10"
 RETAIN_SPLIT = "retain90"
@@ -107,7 +107,6 @@ def scale_to_0_1(original_value, x1, y1):
 
 # --- Phase 2: Optuna Optimization Loop ---
 def objective(trial):
-    start_time = time.time()
 
     # Hyperparameters to be optimized by Optuna for the NOVA algorithm
     opt_noise_epochs = trial.suggest_int("noise_epochs", 1, 100)
@@ -147,7 +146,6 @@ def objective(trial):
         f"trainer.method_args.repair_alpha={opt_repair_alpha}",
         f"paths.output_dir={unlearn_output_dir}", # Set dynamic output path for the model checkpoint
     ]
-    training_datetime = time.time()
 
     # Construct the evaluation command
     eval_command = [
@@ -166,10 +164,12 @@ def objective(trial):
     logger.info(f"{' '.join(train_command)}")
     try:
         # Execute the training command
+        start_time = time.time()
         train_process = subprocess.run(train_command, check=False, capture_output=True, text=True)
         if train_process.returncode != 0:
             logger.error(f"Train command failed for trial {trial.number}. STDOUT:\n{train_process.stdout}\nSTDERR:\n{train_process.stderr}")
             raise RuntimeError("Training process failed")
+        training_datetime = time.time()
 
         logger.info(f"### Starting Evaluation Process for Trial {trial.number} ###")
         logger.info(f"{' '.join(eval_command)}")
@@ -193,18 +193,24 @@ def objective(trial):
 
         if forget_quality is None or model_utility is None:
             raise ValueError("Required metrics (forget_quality or model_utility) not found in summary file.")
-
+        
         if not os.path.exists(INITIAL_FINETUNE_SUMMARY_FILE_PATH):
-            raise FileNotFoundError(f"Initial finetune summary file not found: {INITIAL_FINETUNE_SUMMARY_FILE_PATH}")
+            raise FileNotFoundError(f"Initial finetune summary file not found: {INITIAL_FINETUNE_SUMMARY_FILE_PATH}")  
         with open(INITIAL_FINETUNE_SUMMARY_FILE_PATH, 'r') as f:
             initial_metrics = json.load(f)
         baseline_forget_quality = initial_metrics.get("forget_quality")
         baseline_model_utility = initial_metrics.get("model_utility")
+        
+        if baseline_forget_quality is None or baseline_model_utility is None:
+            raise ValueError("Required metrics (baseline_forget_quality or baseline_model_utility) not found in summary file.")
 
         delta_model_utility = abs(baseline_model_utility - model_utility)
 
-        scaled_forget_quality = scale_to_0_1(forget_quality, 0, 1)
-        scaled_delta_model_utility  = scale_to_0_1(delta_model_utility, 0, max(baseline_model_utility, 1 - baseline_model_utility)) 
+        # Scaled, maybe not important
+        # scaled_forget_quality = scale_to_0_1(forget_quality, 0, 1)
+        # scaled_delta_model_utility  = scale_to_0_1(delta_model_utility, 0, max(baseline_model_utility, 1 - baseline_model_utility))
+        scaled_forget_quality       = forget_quality
+        scaled_delta_model_utility  = delta_model_utility
 
         # Define the objective value to maximize: (forget_quality - delta_model_utility)
         # higher forget_quality is better (more unlearning), lower difference in model_utility is better (more original utility retained).
