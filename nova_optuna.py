@@ -206,11 +206,14 @@ def objective(trial):
 
         delta_model_utility = abs(baseline_model_utility - model_utility)
 
-        # Scaled, maybe not important
-        # scaled_forget_quality = scale_to_0_1(forget_quality, 0, 1)
-        # scaled_delta_model_utility  = scale_to_0_1(delta_model_utility, 0, max(baseline_model_utility, 1 - baseline_model_utility))
-        scaled_forget_quality       = forget_quality
-        scaled_delta_model_utility  = delta_model_utility
+        # TOFU paper also presented the f_q on log scale, for better comparability
+        log_baseline_forget_quality = math.log10(baseline_forget_quality)
+        log_forget_quality          = math.log10(forget_quality)
+
+        scaled_forget_quality = scale_to_0_1(log_forget_quality, log_baseline_forget_quality, 0) # log10(1) = 0, which is the best thing that can happen
+        scaled_delta_model_utility  = scale_to_0_1(delta_model_utility, 0, max(baseline_model_utility, 1 - baseline_model_utility))
+        # scaled_forget_quality       = forget_quality
+        # scaled_delta_model_utility  = delta_model_utility
 
         # Define the objective value to maximize: (forget_quality - delta_model_utility)
         # higher forget_quality is better (more unlearning), lower difference in model_utility is better (more original utility retained).
@@ -221,14 +224,14 @@ def objective(trial):
         if MAXIMIZE_FORGETTING:
             objective_value = scaled_forget_quality 
 
-        logger.info(f"Trial {trial.number} completed. forget_quality: {forget_quality}, model_utility: {model_utility}, Objective: {objective_value}")
+        logger.info(f"Trial {trial.number} completed. forget_quality: {scaled_forget_quality}, model_utility: {scaled_delta_model_utility}, Objective: {objective_value}")
         
         # --- Report non-looping, trial-specific information ---
         # Store training time
         training_time = training_datetime - start_time
         trial.set_user_attr("Training Time (secs)", training_time)
         # Store Forget Quality
-        trial.set_user_attr("Forget Quality", forget_quality)
+        trial.set_user_attr("Forget Quality (log10-scale)", log_forget_quality)
         # Store Model Utility
         trial.set_user_attr("Model Utility", model_utility)
 
