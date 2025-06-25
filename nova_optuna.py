@@ -58,8 +58,8 @@ def optuna_setup():
 
     # Create or load the Optuna study. 'minimize' direction is set as our objective is to minimize a combined metric.
     sampler_name = f"sampler_nova_{BASE_MODEL}_{FORGET_SPLIT}_maxf.pkl" if MAXIMIZE_FORGETTING == True else f"sampler_nova_{BASE_MODEL}_{FORGET_SPLIT}.pkl"
-    if os.path.exists("sampler_nova.pkl"):
-        restored_sampler = pickle.load(open("sampler_nova.pkl", "rb"))
+    if os.path.exists(sampler_name):
+        restored_sampler = pickle.load(open(sampler_name, "rb"))
         study_nova = optuna.create_study(study_name=study_name, storage=storage_name, direction="maximize", load_if_exists=True, sampler=restored_sampler,)
     else:
         study_nova = optuna.create_study(study_name=study_name, storage=storage_name, direction="maximize", load_if_exists=True,)
