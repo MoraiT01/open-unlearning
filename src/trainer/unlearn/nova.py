@@ -4,6 +4,7 @@ from torch import nn
 import logging
 from trainer.unlearn.base import UnlearnTrainer
 from torch.nn import functional as F
+from transformers import AutoTokenizer
 
 # NOVA (Noise-Optimized Vector for Annulling)
 # 
@@ -53,6 +54,10 @@ class NOVA(UnlearnTrainer):
         logger.info(f"NOVA initialized with: n_epochs {self.noise_epochs}| n_lr {self.noise_lr}| reg_term {self.regularization_term}| gamma {self.gamma}| alpha {self.alpha}| soft {self.soft_target}")
         # Initialize KLDivLoss for soft targets
         self.kl_loss_fct = nn.KLDivLoss(reduction='batchmean') # Use 'batchmean' or 'sum' as appropriate
+
+        self.tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-3B-Instruct")
+        # [meta-llama/Meta-Llama-3.1-8B-Instruct, meta-llama/Llama-3.2-3B-Instruct, meta-llama/Llama-3.2-1B-Instruct]
+        # TODO: Sadly, it is hardcoded for now
 
     def get_soft_target(self, model: nn.Module, forget_inputs: dict) -> torch.Tensor:
         """
@@ -275,7 +280,62 @@ class NOVA(UnlearnTrainer):
             # we pass soft_targets_for_impairment to compute_intermediate_loss
 
         # The optimized_perturbation_for_batch now directly acts as the noisy input embeddings.
-        final_antipattern_embeddings = optimized_perturbation_for_batch 
+        final_antipattern_embeddings = optimized_perturbation_for_batch
+
+        # --- LOGGING THE ANTI-PATTERN HERE ---
+        if logger.isEnabledFor(logging.INFO) and final_antipattern_embeddings is not None:
+            # Choose the same sample_idx as for input/output logging
+            sample_idx = 0 
+            if final_antipattern_embeddings.shape[0] > sample_idx:
+                anti_pattern_sample = final_antipattern_embeddings[sample_idx] # Shape: (seq_len, embedding_dim)
+
+                # Log basic statistics of the anti-pattern
+                logger.info(f"\n--- ANTI-PATTERN FORGET SAMPLE {sample_idx} ---")
+                logger.info(f"Anti-Pattern Shape: {anti_pattern_sample.shape}")
+                logger.info(f"Anti-Pattern L2 Norm (per sequence): {torch.norm(anti_pattern_sample).item():.4f}")
+                logger.info(f"Anti-Pattern Mean (overall): {torch.mean(anti_pattern_sample).item():.4f}")
+                logger.info(f"Anti-Pattern Std Dev (overall): {torch.std(anti_pattern_sample).item():.4f}")
+                
+                # --- Optional: "Closest Token" interpretation (requires tokenizer and model's embedding layer) ---
+                # This is for qualitative interpretation and can be computationally expensive if done often.
+                # Only include if you have access to model.get_input_embeddings() and self.tokenizer.
+                if self.tokenizer is not None and hasattr(model, 'get_input_embeddings'):
+                    try:
+                        embedding_layer = model.get_input_embeddings()
+                        if embedding_layer is not None:
+                            # Get the full embedding matrix
+                            embedding_matrix = embedding_layer.weight.data 
+                            
+                            # Flatten the anti-pattern sample to (seq_len * embedding_dim) if needed, or process token by token
+                            # Let's process token by token for a more sensible "closest token"
+                            closest_tokens_per_position = []
+                            for i in range(anti_pattern_sample.shape[0]): # Iterate through sequence length
+                                # Current anti-pattern vector for this position
+                                current_vec = anti_pattern_sample[i] # Shape: (embedding_dim,)
+
+                                # Calculate cosine similarity or Euclidean distance to all token embeddings
+                                # Cosine similarity: (A . B) / (||A|| * ||B||)
+                                # Make sure current_vec is not zero vector for cosine similarity
+                                if torch.norm(current_vec) > 1e-6:
+                                    similarities = F.cosine_similarity(current_vec.unsqueeze(0), embedding_matrix, dim=-1)
+                                    closest_token_id = torch.argmax(similarities).item()
+                                    closest_token_score = similarities[closest_token_id].item() # type: ignore
+                                    closest_tokens_per_position.append(
+                                        f"'{self.tokenizer.decode([closest_token_id])}' (score: {closest_token_score:.2f})"
+                                    )
+                                else:
+                                    closest_tokens_per_position.append("[Zero Vector]")
+                            
+                            logger.info(f"Anti-Pattern Closest Tokens (per position): {', '.join(closest_tokens_per_position)}")
+                        else:
+                            logger.warning("Model does not have an input embedding layer or it's None for 'closest token' logging.")
+                    except Exception as e:
+                        logger.warning(f"Error during 'closest token' logging: {e}")
+                else:
+                    logger.info("Skipping 'Closest Token' logging (tokenizer or embedding layer not available).")
+            else:
+                logger.warning(f"Anti-pattern tensor does not contain sample {sample_idx}.")
+        # --- END LOGGING THE ANTI-PATTERN ---
 
         # Compute forget loss (using the antipatterns as the input)
         # Pass the original hard labels to forget_inputs_processed if soft_target is False,
@@ -312,4 +372,91 @@ class NOVA(UnlearnTrainer):
         loss = self.gamma * forget_loss + self.alpha * retain_loss
         logger.info(f"Gamma: {self.gamma:.7f} | Forget Loss: {forget_loss.item():.7f} | Alpha: {self.alpha:.7f} | Retain Loss: {retain_loss.item():.7f} || Final Loss: {loss.item():.7f}")
         
+        # --- Start Logging Sample Input/Output ---
+        # Add a check for tokenizer presence. Without it, decoding is not possible.
+        if logger.isEnabledFor(logging.INFO) and self.tokenizer is not None:
+            sample_idx = 0 
+
+            # --- FORGET Sample Logging ---
+            if forget_inputs["input_ids"].shape[0] > sample_idx:
+                # Original Input IDs
+                original_forget_input_ids = forget_inputs["input_ids"][sample_idx].cpu().tolist()
+                decoded_original_forget_input = self.tokenizer.decode(original_forget_input_ids, skip_special_tokens=True)
+
+                # Get predicted token IDs (most likely token for each position)
+                predicted_forget_token_ids = []
+                decoded_predicted_forget_output = ""
+                original_forget_labels = "" # Initialize for logging
+                decoded_original_forget_labels = "" # Initialize for logging
+
+                if hasattr(forget_outputs, 'logits') and forget_outputs.logits is not None:
+                    forget_logits_sample = forget_outputs.logits[sample_idx] # Shape: (seq_len, vocab_size)
+                    predicted_forget_token_ids = torch.argmax(forget_logits_sample, dim=-1).cpu().tolist()
+                    decoded_predicted_forget_output = self.tokenizer.decode(predicted_forget_token_ids, skip_special_tokens=True)
+                else:
+                    logger.warning(f"Forget outputs (on perturbed input) do not contain logits for sample {sample_idx}.")
+
+                # Handle Original Labels for Forget Sample
+                if "labels" in forget_inputs and forget_inputs["labels"] is not None: # Check if labels exist
+                    current_forget_labels_tensor = forget_inputs["labels"][sample_idx]
+                    if current_forget_labels_tensor is not None: # Ensure the tensor for the sample isn't None
+                        if current_forget_labels_tensor.dim() == 1: # Assuming 1D for hard labels (token IDs)
+                            original_forget_labels = current_forget_labels_tensor.cpu().tolist()
+                            decoded_original_forget_labels = self.tokenizer.decode(original_forget_labels, skip_special_tokens=True)
+                        else: # Assuming multi-dimensional for soft targets (logits)
+                            # You might want to log the shape or a summary for soft targets
+                            original_forget_labels = f"[Soft Targets/Logits Present - Shape: {current_forget_labels_tensor.shape}]"
+                            decoded_original_forget_labels = "Soft Targets (not directly decodable as text)"
+                else:
+                    original_forget_labels = "[No Labels Provided]"
+                    decoded_original_forget_labels = "[No Labels Provided]"
+
+
+                logger.info(f"\n--- FORGET SAMPLE {sample_idx} (End of compute_loss) ---")
+                logger.info(f"Original Input (Encoded): {original_forget_input_ids}")
+                logger.info(f"Original Input (Decoded): '{decoded_original_forget_input}'")
+                logger.info(f"Original Labels (Encoded/Type): {original_forget_labels}") # Log raw labels here
+                logger.info(f"Original Labels (Decoded/Info): '{decoded_original_forget_labels}'")
+                logger.info(f"Predicted Output (on Perturbed Input, Encoded): {predicted_forget_token_ids}")
+                logger.info(f"Predicted Output (on Perturbed Input, Decoded): '{decoded_predicted_forget_output}'")
+            else:
+                logger.warning(f"Forget batch does not contain sample {sample_idx}.")
+
+
+            # --- RETAIN Sample Logging ---
+            if retain_inputs["input_ids"].shape[0] > sample_idx:
+                # Original Input IDs
+                retain_input_ids = retain_inputs["input_ids"][sample_idx].cpu().tolist()
+                decoded_retain_input = self.tokenizer.decode(retain_input_ids, skip_special_tokens=True)
+
+                # Original Labels
+                retain_labels = retain_inputs["labels"][sample_idx].cpu().tolist()
+                decoded_retain_labels = self.tokenizer.decode(retain_labels, skip_special_tokens=True)
+
+                predicted_retain_token_ids = []
+                decoded_predicted_retain_output = ""
+                if hasattr(retain_outputs, 'logits') and retain_outputs.logits is not None:
+                    retain_logits_sample = retain_outputs.logits[sample_idx]
+                    predicted_retain_token_ids = torch.argmax(retain_logits_sample, dim=-1).cpu().tolist()
+                    decoded_predicted_retain_output = self.tokenizer.decode(predicted_retain_token_ids, skip_special_tokens=True)
+                else:
+                    logger.warning(f"Retain outputs do not contain logits for sample {sample_idx}.")
+
+                logger.info(f"\n--- RETAIN SAMPLE {sample_idx} (End of compute_loss) ---")
+                logger.info(f"Original Input (Encoded): {retain_input_ids}")
+                logger.info(f"Original Input (Decoded): '{decoded_retain_input}'")
+                logger.info(f"Original Labels (Encoded): {retain_labels}")
+                logger.info(f"Original Labels (Decoded): '{decoded_retain_labels}'")
+                logger.info(f"Predicted Output (Encoded): {predicted_retain_token_ids}")
+                logger.info(f"Predicted Output (Decoded): '{decoded_predicted_retain_output}'")
+            else:
+                logger.warning(f"Retain batch does not contain sample {sample_idx}.")
+        else:
+            if self.tokenizer is None:
+                logger.warning("Tokenizer not available for detailed sample logging.")
+            # No need for an else if logger.isEnabledFor(logging.INFO) is false, as nothing would be logged anyway.
+
+
+        # --- End Logging Sample Input/Output ---
+
         return (loss, forget_outputs) if return_outputs else loss
