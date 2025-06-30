@@ -50,6 +50,7 @@ class NOVA(UnlearnTrainer):
         self.gamma = impair_gamma
         self.alpha = repair_alpha
         self.soft_target = soft_target
+        logger.info(f"NOVA initialized with: n_epochs {self.noise_epochs}| n_lr {self.noise_lr}| reg_term {self.regularization_term}| gamma {self.gamma}| alpha {self.alpha}| soft {self.soft_target}")
 
     def get_soft_target(self, model: nn.Module, forget_inputs: dict) -> torch.Tensor:
         """
