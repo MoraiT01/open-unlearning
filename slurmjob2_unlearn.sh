@@ -32,10 +32,16 @@ python -c "import torch; print(torch.cuda.is_available())"
 
 ### Now you may start your operations below ###
 
+# Get the current date and time
+current_datetime=$(date +"%Y-%m-%d %H:%M:%S")
+
 # The actual command to run, using accelerate launch
 # If you want make a testrun
 # python src/train.py --config-name=unlearn.yaml experiment=unlearn/tofu/default \
 #   forget_split=forget10 retain_split=retain90 trainer=GradAscent task_name=SAMPLE_UNLEARN
 
+# Construct the full command with the date in task_name
 python src/train.py --config-name=unlearn.yaml experiment=unlearn/tofu/default \
-    forget_split=forget01 retain_split=retain99 trainer=NOVA task_name=nova_default_99retain retain_logs_path=saves/eval/tofu_Llama-3.2-3B-Instruct_retain99/TOFU_EVAL.json
+    forget_split=forget01 retain_split=retain99 trainer=NOVA \
+    task_name="nova_default_99retain_${current_date}" \
+    retain_logs_path=saves/eval/tofu_Llama-3.2-3B-Instruct_retain99/TOFU_EVAL.json
