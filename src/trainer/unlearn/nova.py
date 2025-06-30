@@ -59,6 +59,20 @@ class NOVA(UnlearnTrainer):
         # [meta-llama/Meta-Llama-3.1-8B-Instruct, meta-llama/Llama-3.2-3B-Instruct, meta-llama/Llama-3.2-1B-Instruct]
         # TODO: Sadly, it is hardcoded for now
 
+        if self.tokenizer.pad_token is None:
+            # Option 1: Use EOS as pad token (common for Llama-like models)
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+
+        # If pad_token_id is still None after setting pad_token (e.g., if eos_token_id was also None),
+        # or if you just want to ensure it's an int.
+        if self.tokenizer.pad_token_id is None:
+            self.tokenizer.pad_token_id = self.tokenizer.eos_token_id # Or another appropriate ID
+            # As a last resort, if EOS is also None and no other suitable special token:
+            # tokenizer.pad_token_id = 0 # Be cautious, ensure 0 is not a frequently used token ID
+
+        padding_value = float(self.tokenizer.pad_token_id)
+        logger.debug(f"Padding value: {padding_value}")
+
     def get_soft_target(self, model: nn.Module, forget_inputs: dict) -> torch.Tensor:
         """
         Generates soft targets (logits) for the forget inputs by passing them
