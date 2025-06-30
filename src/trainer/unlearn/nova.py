@@ -395,6 +395,7 @@ class NOVA(UnlearnTrainer):
         if logger.isEnabledFor(logging.INFO) and self.tokenizer is not None:
             sample_idx = 0
 
+            original_forget_labels_tensor = inputs["forget"]["labels"]
             # --- FORGET Sample Logging ---
             if original_forget_labels_tensor.shape[0] > sample_idx: # Check if sample_idx is within batch bounds
                 # Original Input IDs
@@ -440,11 +441,12 @@ class NOVA(UnlearnTrainer):
                         decoded_original_forget_labels_text = "[Labels could not be decoded due to missing pad_token_id]"
                 else:
                     decoded_original_forget_labels_text = "[No Labels Provided for Forget Sample]"
+                endcoded_original_forget_labels = inputs["forget"]["labels"][0]
 
                 logger.info(f"\n--- FORGET SAMPLE {sample_idx} (End of compute_loss) ---")
                 logger.info(f"Original Input (Encoded): {original_forget_input_ids}")
                 logger.info(f"Original Input (Decoded): '{decoded_original_forget_input}'")
-                logger.info(f"Original Labels (Encoded): {inputs["forget"]["labels"][0]}")
+                logger.info(f"Original Labels (Encoded): {endcoded_original_forget_labels}")
                 logger.info(f"Original Labels (Decoded/Info): '{decoded_original_forget_labels_text}'") # Use the correctly decoded string here
                 logger.info(f"Predicted Output (on Perturbed Input, Encoded): {predicted_forget_token_ids}")
                 logger.info(f"Predicted Output (on Perturbed Input, Decoded): '{decoded_predicted_forget_output}'")
@@ -475,11 +477,11 @@ class NOVA(UnlearnTrainer):
                     decoded_predicted_retain_output = self.tokenizer.decode(predicted_retain_token_ids, skip_special_tokens=True)
                 else:
                     logger.warning(f"Retain outputs do not contain logits for sample {sample_idx}.")
-
+                encoded_retain_labels = inputs["retain"]["labels"][0]
                 logger.info(f"\n--- RETAIN SAMPLE {sample_idx} (End of compute_loss) ---")
                 logger.info(f"Original Input (Encoded): {retain_input_ids}")
                 logger.info(f"Original Input (Decoded): '{decoded_retain_input}'")
-                logger.info(f"Original Labels (Encoded): {inputs["retain"]["labels"][0]}")
+                logger.info(f"Original Labels (Encoded): {encoded_retain_labels}")
                 logger.info(f"Original Labels (Decoded): '{decoded_retain_labels}'")
                 logger.info(f"Predicted Output (Encoded): {predicted_retain_token_ids}")
                 logger.info(f"Predicted Output (Decoded): '{decoded_predicted_retain_output}'")
