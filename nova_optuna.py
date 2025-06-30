@@ -37,9 +37,9 @@ logger.setLevel(logging.INFO) # Set the logging level (e.g., INFO, DEBUG, WARNIN
 formatter = logging.Formatter('[%(asctime)s][%(name)s][%(levelname)s] - %(message)s')
 
 # Create a file handler
-log_file_path = f"logs/opti_{BASE_MODEL}_{FORGET_SPLIT}.log" # You can make this dynamic if needed
+log_file_path = f"logs/opti_{BASE_MODEL}_{FORGET_SPLIT}_s.log" # You can make this dynamic if needed
 if MAXIMIZE_FORGETTING:
-    log_file_path = f"logs/opti_{BASE_MODEL}_{FORGET_SPLIT}_maxf.log" 
+    log_file_path = f"logs/opti_{BASE_MODEL}_{FORGET_SPLIT}_maxf_s.log" 
 file_handler = logging.FileHandler(log_file_path, mode="a")
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
@@ -52,13 +52,13 @@ logger.addHandler(stream_handler)
 def optuna_setup():
     # Define study name and storage for Optuna
 
-    study_name = f"OptiNOVA_{BASE_MODEL}_{FORGET_SPLIT}"
+    study_name = f"OptiNOVA_{BASE_MODEL}_{FORGET_SPLIT}_s"
     if MAXIMIZE_FORGETTING:
-        study_name = f"OptiNOVA_{BASE_MODEL}_{FORGET_SPLIT}_maxforgetting"
+        study_name = f"OptiNOVA_{BASE_MODEL}_{FORGET_SPLIT}_maxforgetting_s"
     storage_name = "sqlite:///{}.db".format("HP_Opti_NOVA")
 
     # Create or load the Optuna study. 'minimize' direction is set as our objective is to minimize a combined metric.
-    sampler_name = f"sampler_nova_{BASE_MODEL}_{FORGET_SPLIT}_maxf.pkl" if MAXIMIZE_FORGETTING == True else f"sampler_nova_{BASE_MODEL}_{FORGET_SPLIT}.pkl"
+    sampler_name = f"sampler_nova_{BASE_MODEL}_{FORGET_SPLIT}_maxf_s.pkl" if MAXIMIZE_FORGETTING == True else f"sampler_nova_{BASE_MODEL}_{FORGET_SPLIT}_s.pkl"
     if os.path.exists(sampler_name):
         restored_sampler = pickle.load(open(sampler_name, "rb"))
         study_nova = optuna.create_study(study_name=study_name, storage=storage_name, direction="maximize", load_if_exists=True, sampler=restored_sampler,)
@@ -119,9 +119,9 @@ def objective(trial):
 
     # Generate a unique task name for the current trial to store results separately
     trial_task_name = f"nova_trial_{trial.number}" # _ne{opt_noise_epochs}_nlr{opt_noise_lr:.5f}_reg{opt_regularization_term:.5f}_g{opt_impair_gamma:.5f}_a{opt_repair_alpha:.5f}"
-    unlearn_output_dir = f"saves/unlearn/default/{BASE_MODEL}/{FORGET_SPLIT}/{trial_task_name}"
+    unlearn_output_dir = f"saves/unlearn/default_s/{BASE_MODEL}/{FORGET_SPLIT}/{trial_task_name}"
     if MAXIMIZE_FORGETTING:
-        unlearn_output_dir = f"saves/unlearn/maxforgetting/{BASE_MODEL}/{FORGET_SPLIT}/{trial_task_name}"
+        unlearn_output_dir = f"saves/unlearn/maxforgetting_s/{BASE_MODEL}/{FORGET_SPLIT}/{trial_task_name}"
     eval_output_dir = f"{unlearn_output_dir}/evals"
     summary_file_path = os.path.join(eval_output_dir, "TOFU_SUMMARY.json")
 
@@ -265,7 +265,7 @@ def main(optuna_tuning: bool = True):
 
     # Start Trials
     if optuna_tuning:
-        study_nova.optimize(objective, n_trials=1)
+        study_nova.optimize(objective, n_trials=50)
 
     # Save the Optuna sampler state for resuming the study later if needed
     with open(sampler_name, "wb") as fout:
