@@ -37,7 +37,8 @@ echo "Running on host: $(hostname)"
 echo "Current directory: $(pwd)"
 
 # --- Define lists for iteration ---
-declare -a algorithms=("GradAscent" "GradDiff" "NPO" "DPO" "SimNPO" "RMU" "UNDIAL" "NOVA")
+declare -a algorithms=("GradAscent" "GradDiff" "NPO" "DPO" "SimNPO" "RMU" "UNDIAL")
+# declare -a algorithms=("NOVA")
 declare -a models=("Llama-3.1-8B-Instruct" "Llama-3.2-3B-Instruct" "Llama-3.2-1B-Instruct")
 declare -a forget_splits=("forget10" "forget05" "forget01")
 
