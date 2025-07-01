@@ -111,9 +111,9 @@ def objective(trial):
 
     # Hyperparameters to be optimized by Optuna for the NOVA algorithm
     opt_noise_epochs = trial.suggest_int("noise_epochs", 1, 100)
-    opt_noise_lr = trial.suggest_float("noise_lr", 0.000001, 1.0, log=True) # Log scale for learning rate
-    opt_regularization_term = trial.suggest_float("regularization_term", 0.000001, 1.0, log=True) # Log scale for regularization
-    opt_impair_gamma = trial.suggest_float("impair_gamma", 0.0001, 10.0, log=True) # Log scale for gamma
+    opt_noise_lr = trial.suggest_float("noise_lr", 0.0000001, 1.0, log=True) # Log scale for learning rate
+    opt_regularization_term = trial.suggest_float("regularization_term", 0.0000001, 1.0, log=True) # Log scale for regularization
+    opt_impair_gamma = trial.suggest_float("impair_gamma", 0.000001, 10.0, log=True) # Log scale for gamma
     opt_repair_alpha = trial.suggest_float("repair_alpha", 0.000001, 10.0, log=True) # Log scale for alpha
 
     # Generate a unique task name for the current trial to store results separately
@@ -263,7 +263,7 @@ def main(optuna_tuning: bool = True):
 
     # Start Trials
     if optuna_tuning:
-        study_nova.optimize(objective, n_trials=1)
+        study_nova.optimize(objective, n_trials=50)
 
     # Save the Optuna sampler state for resuming the study later if needed
     with open(sampler_name, "wb") as fout:
