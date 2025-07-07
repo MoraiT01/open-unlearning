@@ -37,7 +37,7 @@ echo "Running on host: $(hostname)"
 echo "Current directory: $(pwd)"
 
 # --- Define lists for iteration ---
-declare -a algorithms=("GradAscent" "GradDiff" "NPO" "DPO" "SimNPO" "RMU" "UNDIAL")
+declare -a algorithms=("GradAscent" "GradDiff" "NPO" "DPO" "SimNPO" "RMU" "UNDIAL" "NOVA")
 # declare -a algorithms=("NOVA")
 declare -a models=("Llama-3.1-8B-Instruct" "Llama-3.2-3B-Instruct" "Llama-3.2-1B-Instruct")
 declare -a forget_splits=("forget10" "forget05" "forget01")
@@ -130,11 +130,12 @@ for ALGO in "${algorithms[@]}"; do
                 echo "SUCCESS: ${ALGO}-${MODEL}-${FORGET_SPLIT_NAME} completed successfully."
                 # Optional: Clean up model.safetensors or other large files
                 # if you don't need them after evaluation
-                MODEL_TENSORS_FILE="$UNLEARN_OUTPUT_BASE/model.safetensors"
-                if [ -f "$MODEL_TENSORS_FILE" ]; then
-                    echo "Deleting: $MODEL_TENSORS_FILE"
-                    rm "$MODEL_TENSORS_FILE"
-                fi
+                # MODEL_TENSORS_FILE="$UNLEARN_OUTPUT_BASE/model.safetensors"
+                # if [ -f "$MODEL_TENSORS_FILE" ]; then
+                #     echo "Deleting: $MODEL_TENSORS_FILE"
+                #     rm "$MODEL_TENSORS_FILE"
+                # fi
+                # For the next Run, I'd like to keep the models
             fi
             echo "" # Add a newline for readability between runs
         done

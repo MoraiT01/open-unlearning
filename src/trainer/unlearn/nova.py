@@ -35,11 +35,11 @@ class AntiPattern(nn.Module):
 
 class NOVA(UnlearnTrainer):
     def __init__(self,
-                 noise_epochs: int = 5, 
-                 noise_lr: float = 0.2,
-                 regularization_term: float = 0.05,
-                 impair_gamma: float = 1.0,
-                 repair_alpha: float = 1.0,
+                 noise_epochs: int = 10, 
+                 noise_lr: float = 0.00036,
+                 regularization_term: float = 0.00005,
+                 impair_gamma: float = 0.001,
+                 repair_alpha: float = 0.03,
                  *args, **kwargs):
         super().__init__(*args, **kwargs)
 
