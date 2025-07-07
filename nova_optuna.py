@@ -13,7 +13,7 @@ import os # Import os for path manipulation
 
 # Constants for the experiment
 BASE_MODEL = "Llama-3.2-1B-Instruct"
-SOFT_TARGET = False
+SOFT_TARGET = True
 # Out of the following models: [Llama-3.1-8B-Instruct, Llama-3.2-3B-Instruct, Llama-3.2-1B-Instruct]
 FINETUNED_MODEL_OUTPUT_PATH = f"open-unlearning/tofu_{BASE_MODEL}_full" # Path to store the initially finetuned model
 FORGET_SPLIT = "forget10"
@@ -265,7 +265,7 @@ def main(optuna_tuning: bool = True):
 
     # Start Trials
     if optuna_tuning:
-        study_nova.optimize(objective, n_trials=100)
+        study_nova.optimize(objective, n_trials=50)
 
     # Save the Optuna sampler state for resuming the study later if needed
     with open(sampler_name, "wb") as fout:
