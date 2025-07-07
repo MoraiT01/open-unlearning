@@ -13,7 +13,7 @@ import os # Import os for path manipulation
 
 # Constants for the experiment
 BASE_MODEL = "Llama-3.2-1B-Instruct"
-SOFT_TARGET = False
+SOFT_TARGET = True
 # Out of the following models: [Llama-3.1-8B-Instruct, Llama-3.2-3B-Instruct, Llama-3.2-1B-Instruct]
 FINETUNED_MODEL_OUTPUT_PATH = f"open-unlearning/tofu_{BASE_MODEL}_full" # Path to store the initially finetuned model
 FORGET_SPLIT = "forget10"
