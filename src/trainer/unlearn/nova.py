@@ -383,7 +383,7 @@ class NOVA(UnlearnTrainer):
         retain_loss, retain_outputs = self.compute_intermediate_loss(model=model, inputs=retain_inputs_processed) # No soft targets for retain
 
         # Combine losses for the main model's update
-        loss = self.gamma * forget_loss + self.alpha * retain_loss
+        loss = self.gamma * - forget_loss + self.alpha * retain_loss
         logger.info(f"Gamma: {self.gamma:.7f} | Forget Loss: {forget_loss.item():.7f} | Alpha: {self.alpha:.7f} | Retain Loss: {retain_loss.item():.7f} || Final Loss: {loss.item():.7f}")
         
         original_forget_labels = forget_inputs["labels"] # This is the full batch tensor
