@@ -265,7 +265,7 @@ def main(optuna_tuning: bool = True):
 
     # Start Trials
     if optuna_tuning:
-        study_nova.optimize(objective, n_trials=50)
+        study_nova.optimize(objective, n_trials=40)
 
     # Save the Optuna sampler state for resuming the study later if needed
     with open(sampler_name, "wb") as fout:
