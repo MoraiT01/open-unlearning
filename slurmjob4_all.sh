@@ -3,19 +3,19 @@
 #SBATCH --output=transformer-out/run_all_unlearning_combinations_JOB_%j.out # specify the output file
 #SBATCH --error=transformer-err/run_all_unlearning_combinations_JOB_%j.err # specify the error file
 #SBATCH --nodes=1 # As we have single node it should be always set as 1
-#SBATCH --cpus-per-task=4 # Number of CPUs
-#SBATCH --gres=gpu:nvidia_a100_80gb_pcie_3g.39gb:1  # Allocate 1 GPU resources with specified configurations
-#SBATCH --mem=200G  # Specify the total amount of memory
-#SBATCH --time=72:00:00  # Set the time limit to 72 hours
-#SBATCH --partition=advance
-#SBATCH --qos=advance
-#SBATCH --account=advance
+#SBATCH --cpus-per-task=80 # Number of CPUs
+#SBATCH --gres=gpu:7g.79gb # Allocate 1 GPU resources with specified configurations
+#SBATCH --mem=600G  # Specify the total amount of memory
+#SBATCH --time=96:00:00  # Set the time limit to 72 hours
+#SBATCH --partition=ultimate
+#SBATCH --qos=ultimate
+#SBATCH --account=ultimate
 
 # Run the Python script
 srun hostname
 
 # If you still need to setup the environment:
-# bash slurmjob0_install.sh
+# slurmjob0_install.sh
 
 # Initialize Conda for the current shell session
 # Replace '~/miniconda3' with the actual path to your Miniconda/Anaconda installation if different
@@ -37,7 +37,8 @@ echo "Running on host: $(hostname)"
 echo "Current directory: $(pwd)"
 
 # --- Define lists for iteration ---
-declare -a algorithms=("GradAscent" "GradDiff" "NPO" "DPO" "SimNPO" "RMU" "UNDIAL" "NOVA")
+declare -a algorithms=("GradAscent" "GradDiff" "NPO" "DPO" "SimNPO" "RMU" "UNDIAL")
+# declare -a algorithms=("NOVA")
 declare -a models=("Llama-3.1-8B-Instruct" "Llama-3.2-3B-Instruct" "Llama-3.2-1B-Instruct")
 declare -a forget_splits=("forget10" "forget05" "forget01")
 

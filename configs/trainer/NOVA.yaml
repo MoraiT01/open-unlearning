@@ -8,3 +8,4 @@ method_args:
   regularization_term: 0.05
   impair_gamma: 1.0
   repair_alpha: 1.0
+  soft_target: True
