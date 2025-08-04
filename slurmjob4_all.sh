@@ -3,10 +3,10 @@
 #SBATCH --output=transformer-out/run_all_unlearning_combinations_JOB_%j.out # specify the output file
 #SBATCH --error=transformer-err/run_all_unlearning_combinations_JOB_%j.err # specify the error file
 #SBATCH --nodes=1 # As we have single node it should be always set as 1
-#SBATCH --cpus-per-task=80 # Number of CPUs
-#SBATCH --gres=gpu:7g.79gb # Allocate 1 GPU resources with specified configurations
-#SBATCH --mem=600G  # Specify the total amount of memory
-#SBATCH --time=96:00:00  # Set the time limit to 72 hours
+#SBATCH --cpus-per-task=20 # Number of CPUs
+#SBATCH --gres=gpu:7g.79gb:1  # Allocate 1 GPU resources with specified configurations
+#SBATCH --mem=300G  # Specify the total amount of memory
+#SBATCH --time=72:00:00  # Set the time limit to 72 hours
 #SBATCH --partition=ultimate
 #SBATCH --qos=ultimate
 #SBATCH --account=ultimate
@@ -37,7 +37,7 @@ echo "Running on host: $(hostname)"
 echo "Current directory: $(pwd)"
 
 # --- Define lists for iteration ---
-declare -a algorithms=("GradAscent" "GradDiff" "NPO" "DPO" "SimNPO" "RMU" "UNDIAL")
+declare -a algorithms=("GradAscent" "GradDiff" "NPO" "DPO" "SimNPO" "RMU" "UNDIAL" "NOVA")
 # declare -a algorithms=("NOVA")
 declare -a models=("Llama-3.1-8B-Instruct" "Llama-3.2-3B-Instruct" "Llama-3.2-1B-Instruct")
 declare -a forget_splits=("forget10" "forget05" "forget01")
@@ -130,11 +130,12 @@ for ALGO in "${algorithms[@]}"; do
                 echo "SUCCESS: ${ALGO}-${MODEL}-${FORGET_SPLIT_NAME} completed successfully."
                 # Optional: Clean up model.safetensors or other large files
                 # if you don't need them after evaluation
-                MODEL_TENSORS_FILE="$UNLEARN_OUTPUT_BASE/model.safetensors"
-                if [ -f "$MODEL_TENSORS_FILE" ]; then
-                    echo "Deleting: $MODEL_TENSORS_FILE"
-                    rm "$MODEL_TENSORS_FILE"
-                fi
+                # MODEL_TENSORS_FILE="$UNLEARN_OUTPUT_BASE/model.safetensors"
+                # if [ -f "$MODEL_TENSORS_FILE" ]; then
+                #     echo "Deleting: $MODEL_TENSORS_FILE"
+                #     rm "$MODEL_TENSORS_FILE"
+                # fi
+                # For the next Run, I'd like to keep the models
             fi
             echo "" # Add a newline for readability between runs
         done

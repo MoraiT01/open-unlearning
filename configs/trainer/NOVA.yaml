@@ -3,9 +3,9 @@ defaults:
 
 handler: NOVA
 method_args:
-  noise_epochs: 5
-  noise_lr: 0.2
-  regularization_term: 0.05
-  impair_gamma: 1.0
-  repair_alpha: 1.0
-  soft_target: True
+  noise_epochs: 10
+  noise_lr: 0.00036
+  regularization_term: 0.00005
+  impair_gamma: 0.001
+  repair_alpha: 0.03
+  soft_target: False
