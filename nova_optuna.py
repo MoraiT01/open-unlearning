@@ -13,6 +13,7 @@ import os # Import os for path manipulation
 
 # Constants for the experiment
 BASE_MODEL = "Llama-3.2-1B-Instruct"
+SOFT_TARGET = False
 # Out of the following models: [Llama-3.1-8B-Instruct, Llama-3.2-3B-Instruct, Llama-3.2-1B-Instruct]
 FINETUNED_MODEL_OUTPUT_PATH = f"open-unlearning/tofu_{BASE_MODEL}_full" # Path to store the initially finetuned model
 FORGET_SPLIT = "forget10"
@@ -20,6 +21,7 @@ RETAIN_SPLIT = "retain90"
 HOLDOUT_SPLIT = "holdout10" # Used in eval pipeline
 # Path to reference retain logs, assuming they are downloaded via setup_data.py
 RETAIN_LOGS_PATH = f"saves/eval/tofu_{BASE_MODEL}_{RETAIN_SPLIT}/TOFU_EVAL.json"
+MAXIMIZE_FORGETTING = True
 MAXIMIZE_FORGETTING = True
 KEEP_MODEL_TENSORS = False
 
@@ -36,9 +38,9 @@ logger.setLevel(logging.INFO) # Set the logging level (e.g., INFO, DEBUG, WARNIN
 formatter = logging.Formatter('[%(asctime)s][%(name)s][%(levelname)s] - %(message)s')
 
 # Create a file handler
-log_file_path = f"logs/opti_{BASE_MODEL}_{FORGET_SPLIT}.log" # You can make this dynamic if needed
+log_file_path = f"logs/opti_{BASE_MODEL}_{FORGET_SPLIT}_minus.log" # You can make this dynamic if needed
 if MAXIMIZE_FORGETTING:
-    log_file_path = f"logs/opti_{BASE_MODEL}_{FORGET_SPLIT}_maxf.log" 
+    log_file_path = f"logs/opti_{BASE_MODEL}_{FORGET_SPLIT}_maxf_minus.log" 
 file_handler = logging.FileHandler(log_file_path, mode="a")
 file_handler.setFormatter(formatter)
 logger.addHandler(file_handler)
@@ -51,13 +53,13 @@ logger.addHandler(stream_handler)
 def optuna_setup():
     # Define study name and storage for Optuna
 
-    study_name = f"OptiNOVA_{BASE_MODEL}_{FORGET_SPLIT}"
+    study_name = f"OptiNOVA_{BASE_MODEL}_{FORGET_SPLIT}_minus"
     if MAXIMIZE_FORGETTING:
-        study_name = f"OptiNOVA_{BASE_MODEL}_{FORGET_SPLIT}_maxforgetting"
+        study_name = f"OptiNOVA_{BASE_MODEL}_{FORGET_SPLIT}_maxforgetting_minus"
     storage_name = "sqlite:///{}.db".format("HP_Opti_NOVA")
 
     # Create or load the Optuna study. 'minimize' direction is set as our objective is to minimize a combined metric.
-    sampler_name = f"sampler_nova_{BASE_MODEL}_{FORGET_SPLIT}_maxf.pkl" if MAXIMIZE_FORGETTING == True else f"sampler_nova_{BASE_MODEL}_{FORGET_SPLIT}.pkl"
+    sampler_name = f"sampler_nova_{BASE_MODEL}_{FORGET_SPLIT}_maxf_minus.pkl" if MAXIMIZE_FORGETTING == True else f"sampler_nova_{BASE_MODEL}_{FORGET_SPLIT}_minus.pkl"
     if os.path.exists(sampler_name):
         restored_sampler = pickle.load(open(sampler_name, "rb"))
         study_nova = optuna.create_study(study_name=study_name, storage=storage_name, direction="maximize", load_if_exists=True, sampler=restored_sampler,)
@@ -118,9 +120,9 @@ def objective(trial):
 
     # Generate a unique task name for the current trial to store results separately
     trial_task_name = f"nova_trial_{trial.number}" # _ne{opt_noise_epochs}_nlr{opt_noise_lr:.5f}_reg{opt_regularization_term:.5f}_g{opt_impair_gamma:.5f}_a{opt_repair_alpha:.5f}"
-    unlearn_output_dir = f"saves/unlearn/default/{BASE_MODEL}/{FORGET_SPLIT}/{trial_task_name}"
+    unlearn_output_dir = f"saves/unlearn/default_minus/{BASE_MODEL}/{FORGET_SPLIT}/{trial_task_name}"
     if MAXIMIZE_FORGETTING:
-        unlearn_output_dir = f"saves/unlearn/maxforgetting/{BASE_MODEL}/{FORGET_SPLIT}/{trial_task_name}"
+        unlearn_output_dir = f"saves/unlearn/maxforgetting_minus/{BASE_MODEL}/{FORGET_SPLIT}/{trial_task_name}"
     eval_output_dir = f"{unlearn_output_dir}/evals"
     summary_file_path = os.path.join(eval_output_dir, "TOFU_SUMMARY.json")
 
@@ -145,6 +147,7 @@ def objective(trial):
         f"trainer.method_args.regularization_term={opt_regularization_term}",
         f"trainer.method_args.impair_gamma={opt_impair_gamma}",
         f"trainer.method_args.repair_alpha={opt_repair_alpha}",
+        f"trainer.method_args.soft_target={SOFT_TARGET}",
         f"paths.output_dir={unlearn_output_dir}", # Set dynamic output path for the model checkpoint
     ]
 
