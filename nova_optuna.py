@@ -13,7 +13,7 @@ import os # Import os for path manipulation
 
 # Constants for the experiment
 BASE_MODEL = "Llama-3.2-1B-Instruct"
-SOFT_TARGET = False
+SOFT_TARGET = True
 # Out of the following models: [Llama-3.1-8B-Instruct, Llama-3.2-3B-Instruct, Llama-3.2-1B-Instruct]
 FINETUNED_MODEL_OUTPUT_PATH = f"open-unlearning/tofu_{BASE_MODEL}_full" # Path to store the initially finetuned model
 FORGET_SPLIT = "forget10"
@@ -21,7 +21,6 @@ RETAIN_SPLIT = "retain90"
 HOLDOUT_SPLIT = "holdout10" # Used in eval pipeline
 # Path to reference retain logs, assuming they are downloaded via setup_data.py
 RETAIN_LOGS_PATH = f"saves/eval/tofu_{BASE_MODEL}_{RETAIN_SPLIT}/TOFU_EVAL.json"
-MAXIMIZE_FORGETTING = True
 MAXIMIZE_FORGETTING = True
 KEEP_MODEL_TENSORS = False
 
