@@ -389,7 +389,7 @@ class NOVA(UnlearnTrainer):
         original_forget_labels = forget_inputs["labels"] # This is the full batch tensor
         # Assuming original_forget_labels is a tensor
         # Create a copy or filter in place if appropriate
-        labels_to_decode = original_forget_labels.clone() # Work on a copy if original_forget_labels is needed elsewhere
+        # labels_to_decode = original_forget_labels.clone() # Work on a copy if original_forget_labels is needed elsewhere
 
         # --- LOGGING Sample Input/Output ---
         if logger.isEnabledFor(logging.INFO) and self.tokenizer is not None:
