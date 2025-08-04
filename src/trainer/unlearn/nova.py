@@ -386,7 +386,7 @@ class NOVA(UnlearnTrainer):
         loss = self.gamma * - forget_loss + self.alpha * retain_loss
         logger.info(f"Gamma: {self.gamma:.7f} | Forget Loss: {forget_loss.item():.7f} | Alpha: {self.alpha:.7f} | Retain Loss: {retain_loss.item():.7f} || Final Loss: {loss.item():.7f}")
         
-        original_forget_labels = forget_inputs["labels"] # This is the full batch tensor
+        # original_forget_labels = forget_inputs["labels"] # This is the full batch tensor
         # Assuming original_forget_labels is a tensor
         # Create a copy or filter in place if appropriate
         # labels_to_decode = original_forget_labels.clone() # Work on a copy if original_forget_labels is needed elsewhere
