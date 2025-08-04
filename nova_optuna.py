@@ -20,7 +20,7 @@ RETAIN_SPLIT = "retain90"
 HOLDOUT_SPLIT = "holdout10" # Used in eval pipeline
 # Path to reference retain logs, assuming they are downloaded via setup_data.py
 RETAIN_LOGS_PATH = f"saves/eval/tofu_{BASE_MODEL}_{RETAIN_SPLIT}/TOFU_EVAL.json"
-MAXIMIZE_FORGETTING = False
+MAXIMIZE_FORGETTING = True
 KEEP_MODEL_TENSORS = False
 
 # Assuming the setup_data.py was executed before
