@@ -3,13 +3,13 @@
 #SBATCH --output=transformer-out/hpfinetuning_JOB_%j.out # specify the output file
 #SBATCH --error=transformer-err/hpfinetuning_JOB_%j.err # specify the error file
 #SBATCH --nodes=1 # As we have single node it should be always set as 1
-#SBATCH --cpus-per-task=4 # Number of CPUs
-#SBATCH --gres=gpu:nvidia_a100_80gb_pcie_3g.39gb:1  # Allocate 1 GPU resources with specified configurations
-#SBATCH --mem=200G  # Specify the total amount of memory
-#SBATCH --time=72:00:00  # Set the time limit to 72 hours
-#SBATCH --partition=advance
-#SBATCH --qos=advance
-#SBATCH --account=advance
+#SBATCH --cpus-per-task=10 # Number of CPUs
+#SBATCH --gres=gpu:7g.79gb:1  # Allocate 1 GPU resources with specified configurations
+#SBATCH --mem=400G  # Specify the total amount of memory
+#SBATCH --time=96:00:00
+#SBATCH --partition=ultimate
+#SBATCH --qos=ultimate
+#SBATCH --account=ultimate
 
 
 # Run the Python script
