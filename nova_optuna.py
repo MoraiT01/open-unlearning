@@ -7,7 +7,7 @@ import time
 import logging
 import multiprocessing
 import optuna
-from optuna.exceptions import StorageException
+from optuna.exceptions import StorageInternalError
 from optuna.samplers import GridSampler
 
 # --- 1. Centralized Configuration Class ---
@@ -92,23 +92,19 @@ def scale_to_0_1(original_value, x1, y1):
 
 def create_study_with_storage():
     """Creates or loads an Optuna study using a persistent storage and GridSampler."""
-    try:
-        # Tries to load an existing study
-        study = optuna.load_study(
-            study_name=Config.STUDY_NAME, 
-            storage=Config.STORAGE_NAME
-        )
-        logger.info(f"Loaded existing study: {Config.STUDY_NAME}")
-    except StorageException:
-        # If the study does not exist, create it with a GridSampler.
-        grid_sampler = GridSampler(Config.GRID_SEARCH_SPACE)
-        study = optuna.create_study(
-            study_name=Config.STUDY_NAME,
-            storage=Config.STORAGE_NAME,
-            direction="maximize",
-            sampler=grid_sampler  # Use the GridSampler
-        )
-        logger.info(f"Created a new Grid Search study: {Config.STUDY_NAME}")
+    
+    # We remove the try/except block.
+    # The 'load_if_exists=True' parameter handles the logic of loading vs. creating.
+    grid_sampler = GridSampler(Config.GRID_SEARCH_SPACE)
+    study = optuna.create_study(
+        study_name=Config.STUDY_NAME,
+        storage=Config.STORAGE_NAME,
+        direction="maximize",
+        sampler=grid_sampler,
+        load_if_exists=True  # This is the key
+    )
+
+    logger.info(f"Loaded or created study: {Config.STUDY_NAME}")
     return study
 
 
