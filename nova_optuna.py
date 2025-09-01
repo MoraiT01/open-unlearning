@@ -21,8 +21,7 @@ class Config:
 
     # Optuna and Unlearning settings
     MAXIMIZE_FORGETTING = True
-    STUDY_NAME_BASE = f"GridSearch_NOVA_{BASE_MODEL}_{FORGET_SPLIT}"
-    STUDY_NAME = f"{STUDY_NAME_BASE}_maxforgetting" if MAXIMIZE_FORGETTING else f"{STUDY_NAME_BASE}_default"
+    STUDY_NAME = f"GridSearch_NOVA_{BASE_MODEL}_{FORGET_SPLIT}"
     STORAGE_NAME = "sqlite:///HP_GridSearch_NOVA.db"
 
     # Define the Grid Search Space
@@ -42,9 +41,7 @@ class Config:
     RETAIN_LOGS_PATH = f"saves/eval/tofu_{BASE_MODEL}_{RETAIN_SPLIT}/TOFU_EVAL.json"
 
     # Logging
-    LOG_FILE_BASE = f"logs/gridsearch_{BASE_MODEL}_{FORGET_SPLIT}_default.log"
-    LOG_FILE = f"logs/gridsearch_{BASE_MODEL}_{FORGET_SPLIT}_maxforg.log" if MAXIMIZE_FORGETTING else LOG_FILE_BASE
-
+    LOG_FILE = f"logs/gridsearch_{BASE_MODEL}_{FORGET_SPLIT}.log"
     # Cleanup
     KEEP_MODEL_TENSORS = False
     
@@ -128,7 +125,7 @@ def objective(trial):
     opt_soft_targets = trial.suggest_categorical("soft_targets", [True, False])
 
     # Dynamic path generation
-    unlearn_output_dir_base = "saves/unlearn/maxforgetting" if Config.MAXIMIZE_FORGETTING else "saves/unlearn/default"
+    unlearn_output_dir_base = "saves/unlearn"
     unlearn_output_dir = os.path.join(unlearn_output_dir_base, Config.BASE_MODEL, Config.FORGET_SPLIT, f"nova_trial_{trial.number}")
     eval_output_dir = os.path.join(unlearn_output_dir, "evals")
     summary_file_path = os.path.join(eval_output_dir, "TOFU_SUMMARY.json")
@@ -195,8 +192,6 @@ def objective(trial):
         scaled_delta_model_utility = scale_to_0_1(delta_model_utility, 0, max(baseline_model_utility, 1 - baseline_model_utility))
         
         objective_value = scaled_forget_quality
-        if not Config.MAXIMIZE_FORGETTING:
-            objective_value -= scaled_delta_model_utility
 
         logger.info(f"Trial {trial.number} complete. Forget Q: {scaled_forget_quality:.4f}, Delta Utility: {scaled_delta_model_utility:.4f}, Objective: {objective_value:.4f}")
 
