@@ -5,9 +5,7 @@ import json
 import math
 import time
 import logging
-import multiprocessing
 import optuna
-from optuna.exceptions import StorageInternalError
 from optuna.samplers import GridSampler
 
 # --- 1. Centralized Configuration Class ---
@@ -23,6 +21,7 @@ class Config:
     MAXIMIZE_FORGETTING = True
     STUDY_NAME = f"GridSearch_NOVA_{BASE_MODEL}_{FORGET_SPLIT}"
     STORAGE_NAME = "sqlite:///HP_GridSearch_NOVA.db"
+    NUM_TRIALS = 1
 
     # Define the Grid Search Space
     # TODO -> Set the Search Space
@@ -215,29 +214,13 @@ def run_worker():
     """A single worker function for parallel optimization."""
     study = create_study_with_storage()
     # The GridSampler will automatically stop when all trials in the grid are completed.
-    study.optimize(objective)
+    study.optimize(objective, n_trials=Config.NUM_TRIALS)
 
 
 if __name__ == "__main__":
     logger.info("Starting the Grid Search process for Optuna.")
 
-    # Main process ensures the study is set up correctly
-    study = create_study_with_storage()
-    
-    # --- Parallelization with multiprocessing ---
-    # The number of processes can be adjusted based on your hardware.
-    num_processes = multiprocessing.cpu_count()
-    logger.info(f"Starting {num_processes} parallel processes.")
-
-    processes = []
-    # Note: Each process runs the `run_worker` function which connects to the same study.
-    for _ in range(num_processes):
-        p = multiprocessing.Process(target=run_worker)
-        processes.append(p)
-        p.start()
-    
-    for p in processes:
-        p.join()
+    run_worker()
     
     # After all workers are finished, load the final study to print results
     final_study = optuna.load_study(

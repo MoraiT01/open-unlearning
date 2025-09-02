@@ -32,14 +32,29 @@ conda info --envs
 
 ### Now you may start your operations below ###
 
-# Set MASTER_PORT if needed for internal processes that might use it, though direct python calls are used now.
-export MASTER_PORT=$(python -c "import socket; s=socket.socket(); s.bind(('', 0)); print(s.getsockname()[1]); s.close()")
-echo "Master Port: $MASTER_PORT"
+python create_db.py
+# This is a small helper script that queries the DB and prints the number of pending trials
+python check_status.py > status.txt
 
-# Ensure HF_HOME is set for consistent caching
-export HF_HOME=$HOME/.cache/huggingface
+# Loop until all trials are complete (status.txt will contain '0' or a smaller number than 4)
+while [[ $(cat status.txt) -gt 0 ]]; do
 
-# Run the Optuna optimization script.
-python nova_optuna.py
+  # Check the number of running worker jobs for this specific job array
+  RUNNING_JOBS=$(squeue -h -u $USER -n nova_worker | wc -l)
 
-echo "Slurm job finished at: $(date)"
+  # If we are below our parallel limit (e.g., 4) and there are more trials to run
+  if [[ $RUNNING_JOBS -lt 4 ]]; then
+    echo "Submitting a new worker job. Running jobs: $RUNNING_JOBS"
+    # This worker will connect to the same database and pick the next available trial
+    sbatch worker.sh
+  fi
+
+  # Wait a bit before checking again
+  sleep 60
+  
+  # Update the trial status count
+  python check_status.py > status.txt
+
+done
+
+echo "Grid search is complete. All trials have been run.
