@@ -1,15 +1,15 @@
 #!/bin/bash
-#SBATCH --job-name=nova_job_hpfinetuning # specify the job name for monitoring
-#SBATCH --output=transformer-out/hpfinetuning_JOB_%j.out # specify the output file
-#SBATCH --error=transformer-err/hpfinetuning_JOB_%j.err # specify the error file
+#SBATCH --job-name=finetune_master # specify the job name for monitoring
+#SBATCH --output=transformer-out/finetuning_master_JOB_%j.out # specify the output file
+#SBATCH --error=transformer-err/finetuning_master_JOB_%j.err # specify the error file
 #SBATCH --nodes=1 # As we have single node it should be always set as 1
-#SBATCH --cpus-per-task=10 # Number of CPUs
-#SBATCH --gres=gpu:7g.79gb:1  # Allocate 1 GPU resources with specified configurations
-#SBATCH --mem=400G  # Specify the total amount of memory
-#SBATCH --time=96:00:00
-#SBATCH --partition=ultimate
-#SBATCH --qos=ultimate
-#SBATCH --account=ultimate
+#SBATCH --cpus-per-task=1 # Number of CPUs
+#SBATCH --gres=gpu:1g.10gb:1  # Allocate 1 GPU resources with specified configurations
+#SBATCH --mem=50G  # Specify the total amount of memory
+#SBATCH --time=168:00:00
+#SBATCH --partition=debugging
+#SBATCH --qos=debugging
+#SBATCH --account=debugging
 
 
 # Run the Python script
@@ -57,4 +57,4 @@ while [[ $(cat status.txt) -gt 0 ]]; do
 
 done
 
-echo "Grid search is complete. All trials have been run.
+echo "Grid search is complete. All trials have been run."

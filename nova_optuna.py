@@ -26,12 +26,12 @@ class Config:
     # Define the Grid Search Space
     # TODO -> Set the Search Space
     GRID_SEARCH_SPACE = {
-        "noise_epochs": [10, 50, 100],
-        "noise_lr": [1e-4, 1e-5],
-        "regularization_term": [1e-2, 1e-3],
-        "impair_gamma": [1.0, 5.0],
-        "repair_alpha": [1.0, 5.0],
-        "soft_targets": [True, False],
+        "noise_epochs": [10],
+        "noise_lr": [1e-4],
+        "regularization_term": [1e-3],
+        "impair_gamma": [5.0],
+        "repair_alpha": [1.0],
+        "soft_targets": [False],
     }
 
     # Paths (assuming data is downloaded and structured)
