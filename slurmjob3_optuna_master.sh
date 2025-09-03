@@ -40,10 +40,10 @@ python check_status.py > status.txt
 while [[ $(cat status.txt) -gt 0 ]]; do
 
   # Check the number of running worker jobs for this specific job array
-  RUNNING_JOBS=$(squeue -h -u $USER -n nova_worker | wc -l)
+  RUNNING_JOBS=$(squeue -h -u $USER | wc -l)
 
   # If we are below our parallel limit (e.g., 4) and there are more trials to run
-  if [[ $RUNNING_JOBS -lt 4 ]]; then
+  if [[ $RUNNING_JOBS -lt 5 ]]; then
     echo "Submitting a new worker job. Running jobs: $RUNNING_JOBS"
     # This worker will connect to the same database and pick the next available trial
     sbatch worker.sh

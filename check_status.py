@@ -6,6 +6,7 @@ from nova_optuna import Config
 # Set these to match your Optuna study
 STUDY_NAME = Config.STUDY_NAME
 STORAGE_NAME = Config.STORAGE_NAME
+GRID_SEARCH_SPACE = Config.GRID_SEARCH_SPACE
 
 try:
     study = optuna.load_study(
@@ -16,10 +17,16 @@ try:
     # Count how many trials are not in a completed or failed state
     pending_trials = 0
     all_trials = study.get_trials()
+
+    individual_lengths = [len(value) for _, value in GRID_SEARCH_SPACE.items()]
+    res = 1
+
+    for val in individual_lengths:
+        res = res * val
     
     for trial in all_trials:
-        if trial.state not in [optuna.trial.TrialState.COMPLETE, optuna.trial.TrialState.FAIL]:
-            pending_trials += 1
+        if trial.state not in [optuna.trial.TrialState.FAIL]:
+            pending_trials -= 1
             
     print(pending_trials)
 
