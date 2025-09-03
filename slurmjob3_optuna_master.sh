@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=finetune_master # specify the job name for monitoring
+#SBATCH --job-name=TuneMaster # specify the job name for monitoring
 #SBATCH --output=transformer-out/finetuning_master_JOB_%j.out # specify the output file
 #SBATCH --error=transformer-err/finetuning_master_JOB_%j.err # specify the error file
 #SBATCH --nodes=1 # As we have single node it should be always set as 1
@@ -31,22 +31,39 @@ conda activate /fast_storage/kastler/miniconda3/envs/unlearning
 conda info --envs
 
 ### Now you may start your operations below ###
-
 python hpsearch_setup.py
 # This is a small helper script that queries the DB and prints the number of pending trials
 python check_status.py > status.txt
 
+### First Worker is applicable
+# Check the number of running worker jobs for this specific job array
+RUNNING_JOBS=$(squeue -h -u $USER | wc -l)
+# If we are below our parallel limit (e.g., 4) and there are more trials to run
+  if [[ $RUNNING_JOBS -lt 5 && $(cat status.txt) -gt 0 ]]; then
+    # This worker will connect to the same database and pick the next available trial
+    sbatch worker.sh
+    RUNNING_JOBS=$(squeue -h -u $USER | wc -l)
+    echo "Submitted a new worker job. Total Jobs: $RUNNING_JOBS"
+  fi
+
+# Wait a bit before checking again
+sleep 60
+# Update the trial status count
+python check_status.py > status.txt
+
+# Check the number of running worker jobs for this specific job array
+RUNNING_JOBS=$(squeue -h -u $USER | wc -l)
 # Loop until all trials are complete (status.txt will contain '0' or a smaller number than 4)
-while [[ $(cat status.txt) -gt 0 ]]; do
+while [[ $RUNNING_JOBS -gt 1 ]]; do
 
   # Check the number of running worker jobs for this specific job array
   RUNNING_JOBS=$(squeue -h -u $USER | wc -l)
-
   # If we are below our parallel limit (e.g., 4) and there are more trials to run
-  if [[ $RUNNING_JOBS -lt 5 ]]; then
-    echo "Submitting a new worker job. Running jobs: $RUNNING_JOBS"
+  if [[ $RUNNING_JOBS -lt 5 && $(cat status.txt) -gt 0 ]]; then
     # This worker will connect to the same database and pick the next available trial
     sbatch worker.sh
+    RUNNING_JOBS=$(squeue -h -u $USER | wc -l)
+    echo "Submitted a new worker job. Total Jobs: $RUNNING_JOBS"
   fi
 
   # Wait a bit before checking again
@@ -55,6 +72,11 @@ while [[ $(cat status.txt) -gt 0 ]]; do
   # Update the trial status count
   python check_status.py > status.txt
 
+  # Check the number of running worker jobs for this specific job array
+  RUNNING_JOBS=$(squeue -h -u $USER | wc -l)
+  if [[ $(cat status.txt) -eq 0 && $RUNNING_JOBS -gt 1 ]]; then
+    echo "Submitted all possible Trials, Waiting on them to finish. Total Jobs: $RUNNING_JOBS"
+  fi
 done
 
 echo "Grid search is complete. All trials have been run."

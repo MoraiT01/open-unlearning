@@ -60,7 +60,7 @@ def objective(trial):
     opt_regularization_term = trial.suggest_float("regularization_term", 1e-7, 1.0, log=True)
     opt_impair_gamma = trial.suggest_float("impair_gamma", 1e-6, 10.0, log=True)
     opt_repair_alpha = trial.suggest_float("repair_alpha", 1e-6, 10.0, log=True)
-    opt_soft_targets = trial.suggest_categorical("soft_targets", [True, False])
+    opt_soft_targets = trial.suggest_categorical("soft_targets", [0, 1])
 
     # Dynamic path generation
     unlearn_output_dir_base = "saves/unlearn"
@@ -70,7 +70,7 @@ def objective(trial):
 
     os.makedirs(unlearn_output_dir, exist_ok=True)
     os.makedirs(eval_output_dir, exist_ok=True)
-
+    s_target = True if int(opt_soft_targets)==int(1) else False
     try:
         # Construct and run the training command
         train_command = [
@@ -88,7 +88,7 @@ def objective(trial):
             f"trainer.method_args.regularization_term={opt_regularization_term}",
             f"trainer.method_args.impair_gamma={opt_impair_gamma}",
             f"trainer.method_args.repair_alpha={opt_repair_alpha}",
-            f"trainer.method_args.soft_target={opt_soft_targets}",
+            f"trainer.method_args.soft_target={s_target}",
             f"paths.output_dir={unlearn_output_dir}",
         ]
         logger.info(f"Starting Train Trial {trial.number}: {' '.join(train_command)}")

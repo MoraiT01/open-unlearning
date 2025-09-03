@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=finetuning_worker # specify the job name for monitoring
-#SBATCH --output=transformer-out/finetuning_worker_JOB_%j.out # specify the output file
-#SBATCH --error=transformer-err/finetuning_worker_JOB_%j.err # specify the error file
+#SBATCH --job-name=TuneWorker # specify the job name for monitoring
+#SBATCH --output=transformer-out/JOB_%j_finetuning_worker.out # specify the output file
+#SBATCH --error=transformer-err/JOB_%j_finetuning_worker.err # specify the error file
 #SBATCH --nodes=1 # As we have single node it should be always set as 1
 #SBATCH --cpus-per-task=10 # Number of CPUs
 #SBATCH --gres=gpu:nvidia_a100_80gb_pcie_3g.39gb:1  # Allocate 1 GPU resources with specified configurations

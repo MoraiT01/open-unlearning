@@ -21,7 +21,7 @@ class Config:
     # Define the Grid Search Space
     # TODO -> Set the Search Space
     GRID_SEARCH_SPACE = {
-        "noise_epochs": [10],
+        "noise_epochs": [5, 10],
         "noise_lr": [1e-4],
         "regularization_term": [1e-3],
         "impair_gamma": [5.0],
