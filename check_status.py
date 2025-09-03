@@ -1,7 +1,7 @@
 import optuna
 import sys
 
-from nova_optuna import Config
+from hpsearch_setup import Config
 
 # Set these to match your Optuna study
 STUDY_NAME = Config.STUDY_NAME
@@ -15,19 +15,20 @@ try:
     )
     
     # Count how many trials are not in a completed or failed state
-    pending_trials = 0
-    all_trials = study.get_trials()
-
+    # Firstly, let's see how many it should be
     individual_lengths = [len(value) for _, value in GRID_SEARCH_SPACE.items()]
     res = 1
-
     for val in individual_lengths:
         res = res * val
-    
+    pending_trials = res
+
+    # Secondly, how many have been taken care of so far
+    all_trials = study.get_trials()
     for trial in all_trials:
-        if trial.state not in [optuna.trial.TrialState.FAIL]:
+        # Different States: https://optuna.readthedocs.io/en/stable/reference/generated/optuna.trial.TrialState.html#optuna.trial.TrialState
+        if trial.state in [optuna.trial.TrialState.COMPLETE, optuna.trial.TrialState.RUNNING, optuna.trial.TrialState.WAITING]:
             pending_trials -= 1
-            
+
     print(pending_trials)
 
 except optuna.exceptions.StorageInternalError:

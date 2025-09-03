@@ -32,7 +32,7 @@ conda info --envs
 
 ### Now you may start your operations below ###
 
-python create_db.py
+python hpsearch_setup.py
 # This is a small helper script that queries the DB and prints the number of pending trials
 python check_status.py > status.txt
 
