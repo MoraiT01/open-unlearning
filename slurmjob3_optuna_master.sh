@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=TuneMaster # specify the job name for monitoring
-#SBATCH --output=transformer-out/finetuning_master_JOB_%j.out # specify the output file
-#SBATCH --error=transformer-err/finetuning_master_JOB_%j.err # specify the error file
+#SBATCH --output=transformer-out/JOB_%j_finetuning_master.out # specify the output file
+#SBATCH --error=transformer-err/JOB_%j_finetuning_master.err # specify the error file
 #SBATCH --nodes=1 # As we have single node it should be always set as 1
 #SBATCH --cpus-per-task=1 # Number of CPUs
 #SBATCH --gres=gpu:1g.10gb:1  # Allocate 1 GPU resources with specified configurations
@@ -64,6 +64,9 @@ while [[ $RUNNING_JOBS -gt 1 ]]; do
     sbatch worker.sh
     RUNNING_JOBS=$(squeue -h -u $USER | wc -l)
     echo "Submitted a new worker job. Total Jobs: $RUNNING_JOBS"
+  fi
+  if [[ $(cat status.txt) -gt 0 && $RUNNING_JOBS -gt 4 ]]; then
+    echo "Waiting on an open Job Slot. Total Jobs: $RUNNING_JOBS"
   fi
 
   # Wait a bit before checking again
