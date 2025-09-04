@@ -37,10 +37,10 @@ class AntiPattern(nn.Module):
 class NOVA(UnlearnTrainer):
     def __init__(self,                 
                  noise_epochs: int = 10, 
-                 noise_lr: float = 0.00036,
-                 regularization_term: float = 0.00005,
-                 impair_gamma: float = 0.001,
-                 repair_alpha: float = 0.03,
+                 noise_lr: float = 0.0001,
+                 regularization_term: float = 0.0001,
+                 alpha: float = 0.001,
+                 sign: int = 1,
                  soft_target: bool = False,
                  *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -48,10 +48,10 @@ class NOVA(UnlearnTrainer):
         self.noise_epochs = noise_epochs
         self.noise_lr = noise_lr
         self.regularization_term = regularization_term
-        self.gamma = impair_gamma
-        self.alpha = repair_alpha
+        self.alpha = alpha
+        self.sign = sign
         self.soft_target = soft_target
-        logger.info(f"NOVA initialized with: n_epochs {self.noise_epochs}| n_lr {self.noise_lr}| reg_term {self.regularization_term}| gamma {self.gamma}| alpha {self.alpha}| soft {self.soft_target}")
+        logger.info(f"NOVA initialized with: n_epochs {self.noise_epochs}| n_lr {self.noise_lr}| reg_term {self.regularization_term}| alpha {self.alpha}| sign {self.sign}| soft {self.soft_target}")
         # Initialize KLDivLoss for soft targets
         self.kl_loss_fct = nn.KLDivLoss(reduction='batchmean') # Use 'batchmean' or 'sum' as appropriate
 
@@ -383,8 +383,8 @@ class NOVA(UnlearnTrainer):
         retain_loss, retain_outputs = self.compute_intermediate_loss(model=model, inputs=retain_inputs_processed) # No soft targets for retain
 
         # Combine losses for the main model's update
-        loss = self.gamma * - forget_loss + self.alpha * retain_loss
-        logger.info(f"Gamma: {self.gamma:.7f} | Forget Loss: {forget_loss.item():.7f} | Alpha: {self.alpha:.7f} | Retain Loss: {retain_loss.item():.7f} || Final Loss: {loss.item():.7f}")
+        loss = self.sign * forget_loss + self.alpha * retain_loss
+        logger.info(f"Alpha: {self.alpha:.7f} | Forget Loss: {forget_loss.item():.7f} | Sign: {self.sign} | Retain Loss: {retain_loss.item():.7f} || Final Loss: {loss.item():.7f}")
         
         # original_forget_labels = forget_inputs["labels"] # This is the full batch tensor
         # Assuming original_forget_labels is a tensor

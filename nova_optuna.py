@@ -56,11 +56,11 @@ def objective(trial):
     # Hyperparameters from the predefined grid.
     # The GridSampler will override these suggestions with values from the grid.
     opt_noise_epochs = trial.suggest_int("noise_epochs", 1, 100)
-    opt_noise_lr = trial.suggest_float("noise_lr", 1e-7, 1.0, log=True)
-    opt_regularization_term = trial.suggest_float("regularization_term", 1e-7, 1.0, log=True)
-    opt_impair_gamma = trial.suggest_float("impair_gamma", 1e-6, 10.0, log=True)
-    opt_repair_alpha = trial.suggest_float("repair_alpha", 1e-6, 10.0, log=True)
-    opt_soft_targets = trial.suggest_categorical("soft_targets", [0, 1])
+    opt_noise_lr = trial.suggest_float("noise_lr", 1e-10, 1.0, log=True)
+    opt_regularization_term = trial.suggest_float("regularization_term", 1e-8, 1.0, log=True)
+    opt_alpha = trial.suggest_float("alpha", 1e-10, 1.0, log=True)
+    opt_sign = trial.suggest_categorical("sign", [-1, 1], log=True)
+    opt_soft_targets = trial.suggest_categorical("soft_targets", [0, 1], log=True)
 
     # Dynamic path generation
     unlearn_output_dir_base = "saves/unlearn"
@@ -86,8 +86,8 @@ def objective(trial):
             f"trainer.method_args.noise_epochs={opt_noise_epochs}",
             f"trainer.method_args.noise_lr={opt_noise_lr}",
             f"trainer.method_args.regularization_term={opt_regularization_term}",
-            f"trainer.method_args.impair_gamma={opt_impair_gamma}",
-            f"trainer.method_args.repair_alpha={opt_repair_alpha}",
+            f"trainer.method_args.alpha={opt_alpha}",
+            f"trainer.method_args.sign={opt_sign}",
             f"trainer.method_args.soft_target={s_target}",
             f"paths.output_dir={unlearn_output_dir}",
         ]

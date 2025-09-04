@@ -1,4 +1,5 @@
 import os
+import numpy as np
 
 import optuna
 from optuna.samplers import GridSampler
@@ -19,15 +20,21 @@ class Config:
     NUM_TRIALS = 1
 
     # Define the Grid Search Space
-    # TODO -> Set the Search Space
     GRID_SEARCH_SPACE = {
-        "noise_epochs": [5, 10],
-        "noise_lr": [1e-4],
-        "regularization_term": [1e-3],
-        "impair_gamma": [5.0],
-        "repair_alpha": [1.0],
-        "soft_targets": [False],
+        "noise_epochs": list(np.linspace(0, 50, 6)),
+        "noise_lr": list(np.geomspace(0.00000001, 0.01, 7)),
+        "regularization_term": list(np.geomspace(0.0000001, 1, 8)),
+        "alpha": list(np.geomspace(0.00000001, 1, 9)),
+        "sign": [1, -1],
+        "soft_targets": [False, True],
     }
+    # 50 * 50 * 50 * 100 * 2 * 2 Ursprüngliche Kombinationen, würde Jahre Dauern
+    # downsize to: 6*7*8*9*2*2 = 12.096 Kombinationen ist machbare, so 27 vermutlich
+    # 2 pro Stunde, durch 4 Threads, durch vermutlich 2 als schätzwert für die Zwischenspeicherung von Antipatterns
+
+    # Inspirirt von Cheng25d_interspeech, wurde Gamma komplett verworfen und nur Alpha verwendet
+    
+    # Sollte man die Learning Rate auch noch Finetunen (-> configs\trainer\finetune.yaml: learning_rate)?
 
     # Paths (assuming data is downloaded and structured)
     INITIAL_FINETUNE_EVAL_OUTPUT_DIR = f"saves/eval/tofu_{BASE_MODEL}_full/evals_{FORGET_SPLIT}"
