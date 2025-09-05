@@ -55,7 +55,9 @@ class NOVA(UnlearnTrainer):
         # Initialize KLDivLoss for soft targets
         self.kl_loss_fct = nn.KLDivLoss(reduction='batchmean') # Use 'batchmean' or 'sum' as appropriate
 
-        self.tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-3B-Instruct")
+        self.model_name = "Llama-3.2-3B-Instruct"
+
+        self.tokenizer = AutoTokenizer.from_pretrained(f"meta-llama/{self.model_name}")
         # [meta-llama/Meta-Llama-3.1-8B-Instruct, meta-llama/Llama-3.2-3B-Instruct, meta-llama/Llama-3.2-1B-Instruct]
         # TODO: Sadly, it is hardcoded for now
 
@@ -121,7 +123,9 @@ class NOVA(UnlearnTrainer):
         model.eval() # Ensure the main model's parameters are frozen during anti-pattern optimization
 
         batch_size, seq_len = forget_inputs_original["input_ids"].shape
-        embedding_dim = model.config.hidden_size 
+        embedding_dim = model.config.hidden_size
+
+        # TODO: Here is the section to check whether this Anti-patterns have been created allready
 
         anti_pattern_instance = AntiPattern(
             batch_size=batch_size,
