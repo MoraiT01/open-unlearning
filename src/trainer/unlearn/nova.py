@@ -5,6 +5,7 @@ import logging
 from trainer.unlearn.base import UnlearnTrainer
 from torch.nn import functional as F
 from transformers import AutoTokenizer
+import data.nova_speedup
 
 # NOVA (Noise-Optimized Vector for Annulling)
 # 
@@ -14,9 +15,6 @@ from transformers import AutoTokenizer
 # https://github.com/MoraiT01/study_on_unlearning # Here the algorithms, which follow these same principles, are refered to as GeFeU, FEMU and FEMU+
 
 logger = logging.getLogger(__name__)
-
-# Note:
-# - I am assuming that the "inputs" (consiting of "input_ids", "attention_mask", "labels") are in the form of a batch and not a single sample.
 
 class AntiPattern(nn.Module):
     def __init__(self, batch_size: int, seq_len: int, embedding_dim: int, attention_mask: torch.Tensor = None): # type: ignore
@@ -55,11 +53,14 @@ class NOVA(UnlearnTrainer):
         # Initialize KLDivLoss for soft targets
         self.kl_loss_fct = nn.KLDivLoss(reduction='batchmean') # Use 'batchmean' or 'sum' as appropriate
 
-        self.model_name = "Llama-3.2-3B-Instruct"
+        self.model_name = None
+        self.tokenizer = None
 
-        self.tokenizer = AutoTokenizer.from_pretrained(f"meta-llama/{self.model_name}")
+    def _initialize_tokenizer(self):
+
+        print(f"Initializing tokenizer for {self.model_name}...")
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
         # [meta-llama/Meta-Llama-3.1-8B-Instruct, meta-llama/Llama-3.2-3B-Instruct, meta-llama/Llama-3.2-1B-Instruct]
-        # TODO: Sadly, it is hardcoded for now
 
         if self.tokenizer.pad_token is None:
             # Option 1: Use EOS as pad token (common for Llama-like models)
@@ -108,87 +109,113 @@ class NOVA(UnlearnTrainer):
 
     def _optimize_anti_pattern_for_batch(self, model, forget_inputs_original):
         """
-        Optimizes a *new* AntiPattern instance for the current batch of forget_inputs.
-        This phase aims to maximize the model's loss on the forget set when perturbed by this batch-specific anti-pattern.
-        The model is temporarily set to eval mode during this optimization.
+        Optimizes a *new* AntiPattern for each sample in the current batch of forget_inputs.
+        Each anti-pattern is trained independently.
 
         Args:
             model (nn.Module): The language model.
             forget_inputs_original (dict): The original forget inputs (with hard labels).
 
         Returns:
-            torch.Tensor: The optimized perturbation tensor for the current batch, detached from the graph.
+            torch.Tensor: The optimized perturbation tensor for the entire batch, with each sample's
+                        perturbation trained independently, and then stacked together.
         """
         original_training_state = model.training
-        model.eval() # Ensure the main model's parameters are frozen during anti-pattern optimization
+        model.eval() # Freeze the main model's parameters
 
         batch_size, seq_len = forget_inputs_original["input_ids"].shape
         embedding_dim = model.config.hidden_size
+        all_optimized_perturbations = []
 
-        # TODO: Here is the section to check whether this Anti-patterns have been created allready
+        # Iterate through each sample in the batch
+        for i in range(batch_size):
+            # Extract a single sample and its corresponding data
+            single_forget_input = {
+                key: value[i:i+1] for key, value in forget_inputs_original.items()
+            }
+            single_attention_mask = single_forget_input["attention_mask"].to(model.device)
+            # Here we check, whether the anti-pattern has been created for this sample already.
+            if data.nova_speedup.exists(
+                    base_model=self.model_name,
+                    noise_epochs=self.noise_epochs,
+                    noise_lr=self.noise_lr,
+                    reg_term=self.regularization_term,
+                    soft_target=self.soft_target,
+                    sample=single_forget_input["input_ids"]
+                ):
+                all_optimized_perturbations.append(
+                    data.nova_speedup.get(
+                        base_model=self.model_name,
+                        noise_epochs=self.noise_epochs,
+                        noise_lr=self.noise_lr,
+                        reg_term=self.regularization_term,
+                        soft_target=self.soft_target,
+                        sample=single_forget_input["input_ids"]
+                    )
+                )
+            else:
+                # Create a new AntiPattern instance and optimizer for the single sample
+                anti_pattern_instance = AntiPattern(
+                    batch_size=1,
+                    seq_len=seq_len,
+                    embedding_dim=embedding_dim,
+                    attention_mask=single_attention_mask
+                ).to(model.device)
+                optimizer_for_this_sample = torch.optim.Adam(anti_pattern_instance.parameters(), lr=self.noise_lr)
 
-        anti_pattern_instance = AntiPattern(
-            batch_size=batch_size,
-            seq_len=seq_len,
-            embedding_dim=embedding_dim,
-            attention_mask=forget_inputs_original["attention_mask"].to(model.device) 
-        ).to(model.device) 
+                # Prepare the target for anti-pattern optimization
+                if self.soft_target:
+                    ap_target = self.get_soft_target(model, single_forget_input).detach()
+                    ap_labels_for_model_call = None
+                else:
+                    ap_target = single_forget_input["labels"].to(model.device)
+                    ap_labels_for_model_call = ap_target
 
-        optimizer_for_this_batch = torch.optim.Adam(anti_pattern_instance.parameters(), lr=self.noise_lr) # type: ignore
+                with torch.enable_grad():
+                    for epoch_idx in range(self.noise_epochs):
+                        optimizer_for_this_sample.zero_grad()
 
-        # Prepare the target for anti-pattern optimization based on self.soft_target
-        # This will be either hard labels or detached soft targets (logits)
-        if self.soft_target:
-            # If soft_target is True, generate and use soft targets (logits)
-            # IMPORTANT: Generate soft targets *before* the anti-pattern optimization loop.
-            # These are the targets the anti-pattern will try to maximize divergence from.
-            # Ensure model.eval() and no_grad() in get_soft_target for consistency.
-            # This will return logits of shape (batch_size, seq_len, vocab_size)
-            ap_target = self.get_soft_target(model, forget_inputs_original).detach()
-            # The original labels are not needed directly here if using soft targets
-            # and computing KL loss manually.
-            ap_labels_for_model_call = None # Will be passed as labels=None to model
-        else:
-            # If soft_target is False, use the original hard labels
-            ap_target = forget_inputs_original["labels"].to(model.device)
-            ap_labels_for_model_call = ap_target # Will be passed as labels=ap_target to model
+                        perturbation = anti_pattern_instance()
 
-        with torch.enable_grad(): 
-            for epoch_idx in range(self.noise_epochs): 
-                optimizer_for_this_batch.zero_grad()
+                        model_outputs = model(
+                            inputs_embeds=perturbation,
+                            attention_mask=single_attention_mask,
+                            labels=ap_labels_for_model_call
+                        )
 
-                perturbation = anti_pattern_instance() 
-                
-                # Forward pass through the model
-                model_outputs = model(
-                    inputs_embeds=perturbation, 
-                    attention_mask=forget_inputs_original["attention_mask"],
-                    labels=ap_labels_for_model_call # Pass None for soft_target, hard labels otherwise
+                        if self.soft_target:
+                            log_softmax_model_outputs = F.log_softmax(model_outputs.logits, dim=-1)
+                            softmax_soft_targets = F.softmax(ap_target, dim=-1)
+                            kl_loss = -self.kl_loss_fct(log_softmax_model_outputs, softmax_soft_targets)
+                            anti_pattern_loss = kl_loss
+                        else:
+                            anti_pattern_loss = -model_outputs.loss
+
+                        # Add regularization term
+                        anti_pattern_loss += self.regularization_term * torch.mean(torch.square(perturbation.detach()))
+
+                        anti_pattern_loss.backward()
+                        optimizer_for_this_sample.step()
+
+                        if (epoch_idx + 1) % max(1, self.noise_epochs // 5) == 0:
+                            logger.info(f"Sample {i+1}/{batch_size}, Anti-pattern Epoch {epoch_idx+1}/{self.noise_epochs}, Current Loss: {anti_pattern_loss.item():.4f}")
+                        
+                # Save the optimized perturbation for this sample
+                data.nova_speedup.put(
+                    base_model=self.model_name,
+                    noise_epochs=self.noise_epochs,
+                    noise_lr=self.noise_lr,
+                    reg_term=self.regularization_term,
+                    soft_target=self.soft_target,
+                    key=single_forget_input["input_ids"],
+                    value=anti_pattern_instance.pattern.detach(),
                 )
 
-                if self.soft_target:
-                    # Calculate KL Divergence to maximize divergence from soft targets
-                    log_softmax_model_outputs = F.log_softmax(model_outputs.logits, dim=-1)
-                    softmax_soft_targets = F.softmax(ap_target, dim=-1) # ap_target holds the soft targets (logits)
+            all_optimized_perturbations.append(anti_pattern_instance.pattern.detach())
+            logger.info(f"Sample {i+1}/{batch_size} Anti-pattern Training done; Final Loss: {anti_pattern_loss.item():.4f}")
 
-                    # Negate KLDivLoss to maximize it during gradient ascent
-                    kl_loss = -self.kl_loss_fct(log_softmax_model_outputs, softmax_soft_targets)
-                    anti_pattern_loss = kl_loss # Start with KL loss
-                else:
-                    # Use the model's internal loss (CrossEntropyLoss) with hard labels
-                    anti_pattern_loss = - model_outputs.loss # Negate to maximize
-
-                # Add regularization term (applies to both cases)
-                anti_pattern_loss += self.regularization_term * torch.mean(torch.square(perturbation.detach()))
-
-                anti_pattern_loss.backward()
-                optimizer_for_this_batch.step()
-                if (epoch_idx + 1) % max(1, self.noise_epochs // 5) == 0: 
-                    logger.info(f"Anti-pattern Optimization Epoch {epoch_idx+1}/{self.noise_epochs}, Current Loss: {anti_pattern_loss.item():.4f}")
-        
         model.train(original_training_state)
-        logger.info(f"Anti-pattern Training done; Final Loss: {anti_pattern_loss.item():.4f}")
-        return anti_pattern_instance.pattern.detach()
+        return torch.cat(all_optimized_perturbations, dim=0)
 
     def compute_intermediate_loss(self, model: nn.Module, inputs: dict, uses_embeds: bool = False, soft_targets_for_loss: torch.Tensor | None = None):
         """
@@ -282,6 +309,10 @@ class NOVA(UnlearnTrainer):
     def compute_loss(self, model, inputs, return_outputs=False):
         forget_inputs = inputs["forget"]
         retain_inputs = inputs["retain"]
+
+        if self.model_name is None:
+            self.model_name = model.config._name_or_path
+            self._initialize_tokenizer()
 
         # --- Phase 1: Optimize a batch-specific AntiPattern and get its output ---
         # For anti-pattern optimization, use the original hard labels.
