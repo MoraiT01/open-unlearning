@@ -60,8 +60,8 @@ class NOVA(UnlearnTrainer):
     def _initialize_tokenizer(self):
 
         logger.info(f"Initializing tokenizer for {self.model_name}...")
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-        # [meta-llama/Meta-Llama-3.1-8B-Instruct, meta-llama/Llama-3.2-3B-Instruct, meta-llama/Llama-3.2-1B-Instruct]
+        self.tokenizer = AutoTokenizer.from_pretrained(f"meta-llama/{self.model_name}")
+        # [meta-llama/Llama-3.1-8B-Instruct, meta-llama/Llama-3.2-3B-Instruct, meta-llama/Llama-3.2-1B-Instruct]
 
         if self.tokenizer.pad_token is None:
             # Option 1: Use EOS as pad token (common for Llama-like models)
