@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=1 # Number of CPUs
 #SBATCH --gres=gpu:1g.10gb:1  # Allocate 1 GPU resources with specified configurations
 #SBATCH --mem=50G  # Specify the total amount of memory
-#SBATCH --time=168:00:00
+#SBATCH --time=00:30:00
 #SBATCH --partition=debugging
 #SBATCH --qos=debugging
 #SBATCH --account=debugging
