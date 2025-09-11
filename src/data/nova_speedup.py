@@ -1,22 +1,7 @@
 import os
-import json
-from torch import Tensor
+from torch import Tensor, load, save
 
 ROOT_DIR = "saves/nova_speedup"
-
-def load_json(file_path: str):
-    """
-    Loads a JSON file and returns the data.
-    """
-    with open(file_path, 'r') as f:
-        return json.load(f)
-
-def save_json(data, file_path: str):
-    """
-    Saves a dictionary to a JSON file.
-    """
-    with open(file_path, 'w') as f:
-        json.dump(data, f, indent=4)
 
 def get_relative_paths():
     """
@@ -42,7 +27,7 @@ def get_query(
     config_list = [base_model, noise_epochs, noise_lr, reg_term, soft_target]
     config_list = [str(var).replace(".", "_") for var in config_list]
     config_list = os.path.join(*config_list)
-    return config_list + ".json"
+    return config_list + ".pkl"
 
 def create_directory(
     base_model: str,
@@ -73,16 +58,11 @@ def put(
         base_model=base_model, noise_epochs=noise_epochs, noise_lr=noise_lr, reg_term=reg_term, soft_target=soft_target,
     )
     query = os.path.join(ROOT_DIR, get_query(base_model=base_model, noise_epochs=noise_epochs, noise_lr=noise_lr, reg_term=reg_term, soft_target=soft_target, ))
-    
-    # Load JSON file if it exists, otherwise start with an empty dictionary
-    dictionary = load_json(query) if os.path.exists(query) else {}
+    dictionary = load(query) if os.path.exists(query) else {}
 
-    # Convert the key tensor and value tensor to a JSON-compatible format (list)
-    hashable_tensor = key.tolist()
-    dictionary[str(hashable_tensor)] = value.tolist()  # Store value as a list
-
-    # Save the updated dictionary as a JSON file
-    save_json(dictionary, query)
+    hashable_tensor = tuple(key.tolist())
+    dictionary[hashable_tensor] = value
+    save(dictionary, query)
     print(f"✅ Saved tensor mapping to: {query}")
 
 def get(
@@ -94,14 +74,13 @@ def get(
     sample: Tensor,
 ) -> Tensor:
     query = os.path.join(ROOT_DIR, get_query(base_model=base_model, noise_epochs=noise_epochs, noise_lr=noise_lr, reg_term=reg_term, soft_target=soft_target, ))
-    dictionary = load_json(query)
-
+    dictionary = load(query)
     try:
-        hashable_tensor_str = str(sample.tolist())
-        mapping = dictionary[hashable_tensor_str]
-        return Tensor(mapping)  # Convert the list back to a Tensor
+        hashable_tensor = tuple(sample.tolist())
+        mapping = dictionary[hashable_tensor]
     except KeyError:
         raise KeyError("The sample you are looking for does not exist")
+    return mapping
 
 def exists(
     base_model: str,
@@ -115,9 +94,8 @@ def exists(
     rel_path_set = get_relative_paths()
     if query in rel_path_set:
         full_query_path = os.path.join(ROOT_DIR, query)
-        loaded_dict = load_json(full_query_path)
-       
-        hashable_tensor_str = str(sample.tolist())
-        if hashable_tensor_str in loaded_dict:
+        loaded_dict = load(full_query_path)
+        hashable_tensor = tuple(sample.tolist())
+        if hashable_tensor in loaded_dict:
             return True
     return False
