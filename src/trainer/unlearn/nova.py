@@ -120,7 +120,7 @@ class NOVA(UnlearnTrainer):
                     noise_lr=self.noise_lr,
                     reg_term=self.regularization_term,
                     soft_target=self.soft_target,
-                    sample=torch.squeeze(single_forget_input["inputs_ids"], 0),
+                    sample=torch.squeeze(single_forget_input["input_ids"], 0),
                 ):
                 logger.info(f"Matching Prior Processed Anti-pattern found!")
                 all_optimized_perturbations.append(
@@ -130,7 +130,7 @@ class NOVA(UnlearnTrainer):
                         noise_lr=self.noise_lr,
                         reg_term=self.regularization_term,
                         soft_target=self.soft_target,
-                        sample=torch.squeeze(single_forget_input["inputs_ids"], 0),
+                        sample=torch.squeeze(single_forget_input["input_ids"], 0),
                     )
                 )
             else:
@@ -188,7 +188,7 @@ class NOVA(UnlearnTrainer):
                     noise_lr=self.noise_lr,
                     reg_term=self.regularization_term,
                     soft_target=self.soft_target,
-                    key=torch.squeeze(single_forget_input["inputs_ids"], 0),
+                    key=torch.squeeze(single_forget_input["input_ids"], 0),
                     value=anti_pattern_instance.pattern.detach(),
                 )
 
