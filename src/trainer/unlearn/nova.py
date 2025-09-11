@@ -192,8 +192,8 @@ class NOVA(UnlearnTrainer):
                     value=anti_pattern_instance.pattern.detach(),
                 )
 
-            all_optimized_perturbations.append(anti_pattern_instance.pattern.detach())
-            logger.info(f"Sample {i+1}/{batch_size} Anti-pattern Training done; Final Loss: {anti_pattern_loss.item():.4f}")
+                all_optimized_perturbations.append(anti_pattern_instance.pattern.detach())
+                logger.info(f"Sample {i+1}/{batch_size} Anti-pattern Training done; Final Loss: {anti_pattern_loss.item():.4f}")
 
         model.train(original_training_state)
         return torch.cat(all_optimized_perturbations, dim=0)
@@ -281,9 +281,7 @@ class NOVA(UnlearnTrainer):
             if final_antipattern_embeddings.shape[0] > sample_idx:
                 anti_pattern_sample = final_antipattern_embeddings[sample_idx] # Shape: (seq_len, embedding_dim)
                 
-                logger.info(f"\n--- ANTI-PATTERN FORGET SAMPLE {sample_idx} ---")
                 logger.info(f"Anti-Pattern Shape: {anti_pattern_sample.shape}")
-                # Removed: "Closest Token" logging logic
             else:
                 logger.warning(f"Anti-pattern tensor does not contain sample {sample_idx}.")
         # --- END LOGGING THE ANTI-PATTERN ---
