@@ -70,7 +70,7 @@ while [[ $RUNNING_JOBS -gt 1 ]]; do
   fi
 
   # Wait a bit before checking again
-  sleep 60
+  sleep 300
   
   # Update the trial status count
   python check_status.py > status.txt

@@ -57,7 +57,7 @@ class NOVA(UnlearnTrainer):
         self.tokenizer = None
 
     def _initialize_tokenizer(self):
-
+        
         print(f"Initializing tokenizer for {self.model_name}...")
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
         # [meta-llama/Meta-Llama-3.1-8B-Instruct, meta-llama/Llama-3.2-3B-Instruct, meta-llama/Llama-3.2-1B-Instruct]
@@ -143,6 +143,7 @@ class NOVA(UnlearnTrainer):
                     soft_target=self.soft_target,
                     sample=single_forget_input["input_ids"]
                 ):
+                logger.info(f"Matching Prior Processed Anti-pattern found!")
                 all_optimized_perturbations.append(
                     data.nova_speedup.get(
                         base_model=self.model_name,
@@ -201,6 +202,7 @@ class NOVA(UnlearnTrainer):
                             logger.info(f"Sample {i+1}/{batch_size}, Anti-pattern Epoch {epoch_idx+1}/{self.noise_epochs}, Current Loss: {anti_pattern_loss.item():.4f}")
                         
                 # Save the optimized perturbation for this sample
+                logger.info(f"Saving created Anti-pattern for later Use")
                 data.nova_speedup.put(
                     base_model=self.model_name,
                     noise_epochs=self.noise_epochs,
