@@ -5,6 +5,7 @@ import logging
 from trainer.unlearn.base import UnlearnTrainer
 from torch.nn import functional as F
 from transformers import AutoTokenizer
+
 import data.nova_speedup
 
 # NOVA (Noise-Optimized Vector for Annulling)
@@ -57,8 +58,8 @@ class NOVA(UnlearnTrainer):
         self.tokenizer = None
 
     def _initialize_tokenizer(self):
-        
-        print(f"Initializing tokenizer for {self.model_name}...")
+
+        logger.info(f"Initializing tokenizer for {self.model_name}...")
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
         # [meta-llama/Meta-Llama-3.1-8B-Instruct, meta-llama/Llama-3.2-3B-Instruct, meta-llama/Llama-3.2-1B-Instruct]
 

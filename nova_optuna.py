@@ -59,8 +59,8 @@ def objective(trial):
     opt_noise_lr = trial.suggest_float("noise_lr", 1e-10, 1.0, log=True)
     opt_regularization_term = trial.suggest_float("regularization_term", 1e-8, 1.0, log=True)
     opt_alpha = trial.suggest_float("alpha", 1e-10, 1.0, log=True)
-    opt_sign = trial.suggest_categorical("sign", [-1, 1],)
-    opt_soft_targets = trial.suggest_categorical("soft_targets", [0, 1], )
+    opt_sign = trial.suggest_categorical("sign", [-1, 1])
+    opt_soft_targets = trial.suggest_categorical("soft_targets", [0, 1])
 
     # Dynamic path generation
     unlearn_output_dir_base = "saves/unlearn"
@@ -171,7 +171,6 @@ if __name__ == "__main__":
         storage=Config.STORAGE_NAME
     )
     
-    logger.info("Grid Search complete across all processes.")
     logger.info(f"Total number of trials: {len(final_study.trials)}")
     logger.info(f"Best trial: {final_study.best_trial.value}")
     logger.info(f"Best parameters: {final_study.best_trial.params}")
