@@ -9,9 +9,9 @@ class Config:
     """A class to hold all configuration constants for the experiment."""
     # Experiment settings
     BASE_MODEL = "Llama-3.2-1B-Instruct"
-    FORGET_SPLIT = "forget10"
-    RETAIN_SPLIT = "retain90"
-    HOLDOUT_SPLIT = "holdout10"
+    FORGET_SPLIT = "forget05"
+    RETAIN_SPLIT = "retain95"
+    HOLDOUT_SPLIT = "holdout05"
 
     # Optuna and Unlearning settings
     MAXIMIZE_FORGETTING = True
