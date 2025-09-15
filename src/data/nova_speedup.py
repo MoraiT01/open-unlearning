@@ -110,8 +110,8 @@ def put(
     key = reduce_eos_tokens(key)
     
     # ChromaDB expects lists of values
-    embeddings = [key.tolist()]
-    documents = [""]
+    embeddings = None 
+    documents = [""]    # Could add actual decoded text
     metadatas = [metadata]
     ids = [str(hash(tuple(key.tolist())))]
 
