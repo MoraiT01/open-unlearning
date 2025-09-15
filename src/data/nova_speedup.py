@@ -1,49 +1,80 @@
-import os
-from torch import Tensor, load, save
+from torch import Tensor, tensor, flip, nonzero
+from torch import (
+    float16, float32, float64, int8, int16, int32, int64
+)
+import chromadb
+from typing import Dict, Any, List
 
-ROOT_DIR = "saves/nova_speedup"
+# Initialize the ChromaDB client
+ROOT_DIR = "saves/chromadb"
+client = chromadb.PersistentClient(path=ROOT_DIR)
 
-def get_relative_paths():
+# Define a constant for the collection name
+COLLECTION_NAME = "nova_speedup_collection"
+
+def get_collection() -> chromadb.Collection:
     """
-    Returns a set of relative paths for all files in a given directory and its subdirectories.
+    Retrieves or creates the ChromaDB collection.
     """
-    if not os.path.exists(ROOT_DIR):
-        return set()
-    relative_paths = set()
-    for dirpath, dirnames, filenames in os.walk(ROOT_DIR):
-        for filename in filenames:
-            absolute_path = os.path.join(dirpath, filename)
-            relative_path = os.path.relpath(absolute_path, ROOT_DIR)
-            relative_paths.add(relative_path)
-    return relative_paths
+    return client.get_or_create_collection(
+        name=COLLECTION_NAME,
+        embedding_function=None,
+    )
 
-def get_query( 
-    base_model: str,
-    noise_epochs: int,
-    noise_lr: float,
-    reg_term: float,
-    soft_target: bool,
-) -> str:
-    config_list = [base_model, noise_epochs, noise_lr, reg_term, soft_target]
-    config_list = [str(var).replace(".", "_") for var in config_list]
-    config_list = os.path.join(*config_list)
-    return config_list + ".pkl"
+def reduce_eos_tokens(
+        vector: Tensor
+) -> Tensor:
+    """
+    Removes trailing duplicate values from a 1D PyTorch Tensor.
 
-def create_directory(
-    base_model: str,
-    noise_epochs: int,
-    noise_lr: float,
-    reg_term: float,
-    soft_target: bool,
-):
-    query = get_query(base_model=base_model, noise_epochs=noise_epochs, noise_lr=noise_lr, reg_term=reg_term, soft_target=soft_target,)
-    relative_path = query.rsplit(os.sep, maxsplit=1)[0]
-    full_path = os.path.join(ROOT_DIR, relative_path)
-    if not os.path.exists(full_path):
-        os.makedirs(full_path)
-        print(f"✅ Created directory: {full_path}")
+    Args:
+        tensor (torch.Tensor): A 1D tensor.
+
+    Returns:
+        torch.Tensor: A new tensor with trailing duplicates removed.
+    """
+    if vector.dim() != 1 or vector.numel() == 0:
+        return vector
+    # Get the last value of the vector
+    last_value = vector[-1]
+
+    # Reverse the vector to find the first element that's different
+    reversed_vector = flip(vector, dims=[0])
+
+    # Find all indices where the values are NOT equal to the last value
+    diff_indices = nonzero(reversed_vector != last_value)
+    if diff_indices.numel() == 0:
+        # If no different values are found, the entire vector is the tail
+        cutter = len(vector)
     else:
-        print(f"ℹ️ Directory already exists: {full_path}")
+        # The length of the tail is the index of the first different value
+        cutter =  diff_indices[0].item()
+
+    if cutter == 1:
+        return vector
+    return vector[:-(cutter-1)]
+
+def get_metadata(
+    base_model: str,
+    noise_epochs: int,
+    noise_lr: float,
+    reg_term: float,
+    soft_target: bool,
+    tensor_value: List[float] | List[int],
+    tensor_dtype: str, # New parameter for the tensor's datatype
+) -> Dict[str, Any]:
+    """
+    Creates a metadata dictionary from the input parameters.
+    """
+    return {
+        "base_model": base_model,
+        "noise_epochs": noise_epochs,
+        "noise_lr": noise_lr,
+        "reg_term": reg_term,
+        "soft_target": soft_target,
+        "tensor_value": tensor_value,
+        "tensor_dtype": tensor_dtype,
+    }
 
 def put(
     base_model: str,
@@ -54,16 +85,30 @@ def put(
     key: Tensor,
     value: Tensor,
 ):
-    create_directory(
-        base_model=base_model, noise_epochs=noise_epochs, noise_lr=noise_lr, reg_term=reg_term, soft_target=soft_target,
+    """
+    Adds a key-value pair to the ChromaDB collection.
+    """
+    collection = get_collection()
+    
+    # Store the tensor value as a list and its datatype as a string in the metadata
+    metadata = get_metadata(
+        base_model, noise_epochs, noise_lr, reg_term, soft_target, value.tolist(), str(value.dtype)
     )
-    query = os.path.join(ROOT_DIR, get_query(base_model=base_model, noise_epochs=noise_epochs, noise_lr=noise_lr, reg_term=reg_term, soft_target=soft_target, ))
-    dictionary = load(query) if os.path.exists(query) else {}
+    key = reduce_eos_tokens(key)
+    
+    # ChromaDB expects lists of values
+    embeddings = [key.tolist()]
+    documents = [""]
+    metadatas = [metadata]
+    ids = [str(hash(tuple(key.tolist())))]
 
-    hashable_tensor = tuple(key.tolist())
-    dictionary[hashable_tensor] = value
-    save(dictionary, query)
-    print(f"✅ Saved tensor mapping to: {query}")
+    collection.add(
+        embeddings=embeddings,
+        documents=documents,
+        metadatas=metadatas,
+        ids=ids,
+    )
+    print(f"✅ Saved tensor mapping to ChromaDB collection: {COLLECTION_NAME}")
 
 def get(
     base_model: str,
@@ -73,14 +118,50 @@ def get(
     soft_target: bool,
     sample: Tensor,
 ) -> Tensor:
-    query = os.path.join(ROOT_DIR, get_query(base_model=base_model, noise_epochs=noise_epochs, noise_lr=noise_lr, reg_term=reg_term, soft_target=soft_target, ))
-    dictionary = load(query)
-    try:
-        hashable_tensor = tuple(sample.tolist())
-        mapping = dictionary[hashable_tensor]
-    except KeyError:
+    """
+    Retrieves the value associated with a sample vector from ChromaDB.
+    """
+    collection = get_collection()
+    
+    sample = reduce_eos_tokens(sample)
+    # Define the filter for metadata, excluding the tensor value and dtype
+    metadata_filter = {
+        "base_model": base_model,
+        "noise_epochs": noise_epochs,
+        "noise_lr": noise_lr,
+        "reg_term": reg_term,
+        "soft_target": soft_target,
+    }
+
+    results = collection.get(
+        ids=[str(hash(tuple(sample.tolist())))],
+        where=metadata_filter
+    )
+    
+    if results['metadatas'] and results['metadatas'][0]:
+        # Retrieve the list and datatype from metadata and convert back to a tensor
+        tensor_list = results['metadatas'][0].get('tensor_value')
+        tensor_dtype_str = results['metadatas'][0].get('tensor_dtype')
+        
+        # Use a mapping to get the correct torch.dtype from the string
+        # This is a robust way to handle the conversion
+        dtype_map = {
+            'torch.float16': float16,
+            'torch.float32': float32,
+            'torch.float64': float64,
+            'torch.int8':  int8,
+            'torch.int16': int16,
+            'torch.int32': int32,
+            'torch.int64': int64,
+        }
+        
+        dtype = dtype_map.get(tensor_dtype_str, None)
+        if dtype is None:
+            raise ValueError(f"Unknown tensor dtype: {tensor_dtype_str}")
+
+        return tensor(tensor_list, dtype=dtype)
+    else:
         raise KeyError("The sample you are looking for does not exist")
-    return mapping
 
 def exists(
     base_model: str,
@@ -90,12 +171,56 @@ def exists(
     soft_target: bool,
     sample: Tensor,
 ) -> bool:
-    query = get_query(base_model=base_model, noise_epochs=noise_epochs, noise_lr=noise_lr, reg_term=reg_term, soft_target=soft_target,)
-    rel_path_set = get_relative_paths()
-    if query in rel_path_set:
-        full_query_path = os.path.join(ROOT_DIR, query)
-        loaded_dict = load(full_query_path)
-        hashable_tensor = tuple(sample.tolist())
-        if hashable_tensor in loaded_dict:
-            return True
-    return False
+    """
+    Checks if a sample vector and its associated metadata exist in ChromaDB.
+    """
+    collection = get_collection()
+
+    sample = reduce_eos_tokens(sample)
+    metadata_filter = {
+        "base_model": base_model,
+        "noise_epochs": noise_epochs,
+        "noise_lr": noise_lr,
+        "reg_term": reg_term,
+        "soft_target": soft_target,
+    }
+    
+    results = collection.get(
+        ids=[str(hash(tuple(sample.tolist())))],
+        where=metadata_filter
+    )
+    
+    return bool(results['ids'])
+
+def delete(
+    base_model: str,
+    noise_epochs: int,
+    noise_lr: float,
+    reg_term: float,
+    soft_target: bool,
+    sample: Tensor,
+) -> bool:
+    """
+    Deletes a document from the ChromaDB collection based on a sample vector and its metadata.
+    """
+    collection = get_collection()
+    
+    sample = reduce_eos_tokens(sample)
+    metadata_filter = {
+        "base_model": base_model,
+        "noise_epochs": noise_epochs,
+        "noise_lr": noise_lr,
+        "reg_term": reg_term,
+        "soft_target": soft_target,
+    }
+
+    try:
+        collection.delete(
+            ids=[str(hash(tuple(sample.tolist())))],
+            where=metadata_filter
+        )
+        print("✅ Successfully deleted document.")
+        return True
+    except Exception as e:
+        print(f"❌ Failed to delete document: {e}")
+        return False
