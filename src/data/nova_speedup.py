@@ -60,7 +60,7 @@ def get_metadata(
     noise_lr: float,
     reg_term: float,
     soft_target: bool,
-    tensor_value: List[float] | List[int] = None,
+    tensor_value: str = None,
     tensor_dtype: str = None, 
     as_filter: bool = False,
 ) -> Dict[str, Any]:
@@ -105,7 +105,7 @@ def put(
     
     # Store the tensor value as a list and its datatype as a string in the metadata
     metadata = get_metadata(
-        base_model, noise_epochs, noise_lr, reg_term, soft_target, value.tolist(), str(value.dtype)
+        base_model, noise_epochs, noise_lr, reg_term, soft_target, str(value.tolist()), str(value.dtype)
     )
     key = reduce_eos_tokens(key)
     
@@ -138,13 +138,14 @@ def get(
     
     sample = reduce_eos_tokens(sample)
     # Define the filter for metadata, excluding the tensor value and dtype
-    metadata_filter = {
-        "base_model": base_model,
-        "noise_epochs": noise_epochs,
-        "noise_lr": noise_lr,
-        "reg_term": reg_term,
-        "soft_target": soft_target,
-    }
+    metadata_filter = get_metadata(
+        base_model=base_model,
+        noise_epochs=noise_epochs,
+        noise_lr=noise_lr,
+        reg_term=reg_term,
+        soft_target=soft_target,
+        as_filter=True,
+    )
 
     results = collection.get(
         ids=[str(hash(tuple(sample.tolist())))],
@@ -153,7 +154,7 @@ def get(
     
     if results['metadatas'] and results['metadatas'][0]:
         # Retrieve the list and datatype from metadata and convert back to a tensor
-        tensor_list = results['metadatas'][0].get('tensor_value')
+        tensor_str = results['metadatas'][0].get('tensor_value')
         tensor_dtype_str = results['metadatas'][0].get('tensor_dtype')
         
         # Use a mapping to get the correct torch.dtype from the string
@@ -172,7 +173,7 @@ def get(
         if dtype is None:
             raise ValueError(f"Unknown tensor dtype: {tensor_dtype_str}")
 
-        return tensor(tensor_list, dtype=dtype)
+        return tensor(eval(tensor_str), dtype=dtype)
     else:
         raise KeyError("The sample you are looking for does not exist")
 
