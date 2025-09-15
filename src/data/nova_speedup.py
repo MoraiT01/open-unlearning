@@ -148,7 +148,7 @@ def put(
     
     # ChromaDB expects lists of values
     embeddings = None 
-    documents = [tokenizer.decode(value)]    # Could add actual decoded text
+    documents = [tokenizer.decode(key)]    # Could add actual decoded text
     metadatas = [metadata]
     ids = [str(hash(tuple(key.tolist())))]
 
