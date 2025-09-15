@@ -2,13 +2,21 @@ from torch import Tensor, tensor, flip, nonzero
 from torch import (
     float16, float32, float64, int8, int16, int32, int64
 )
+from transformers import AutoTokenizer
+import chromadb.utils.embedding_functions as embedding_functions
 import chromadb
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 # Initialize the ChromaDB client
 ROOT_DIR = "saves/chromadb"
 client = chromadb.PersistentClient(path=ROOT_DIR)
 
+HF_TOKEN= # Your Token
+TOKENIZER_MAPPING = {
+    "Llama-3.1-8B-Instruct": "meta-llama/Llama-3.1-8B-Instruct",
+    "Llama-3.2-3B-Instruct": "meta-llama/Llama-3.2-3B-Instruct",
+    "Llama-3.2-1B-Instruct": "meta-llama/Llama-3.2-1B-Instruct",
+}
 # Define a constant for the collection name
 COLLECTION_NAME = "nova_speedup_collection"
 
@@ -16,10 +24,38 @@ def get_collection() -> chromadb.Collection:
     """
     Retrieves or creates the ChromaDB collection.
     """
+    
+    huggingface_ef = embedding_functions.HuggingFaceEmbeddingFunction(
+        api_key=HF_TOKEN,
+        model_name="sentence-transformers/all-MiniLM-L6-v2"
+    )
+
     return client.get_or_create_collection(
         name=COLLECTION_NAME,
-        embedding_function=None,
+        embedding_function=huggingface_ef,
     )
+
+def get_tokenizer(
+        base_model: str,
+):
+    """
+    Create the Tokenizer for the parse model
+    """
+    model_path = None
+    for name, path in TOKENIZER_MAPPING.items():
+        if name in base_model:
+            model_path = path
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_path,
+        token=HF_TOKEN
+    )
+    # [meta-llama/Llama-3.1-8B-Instruct, meta-llama/Llama-3.2-3B-Instruct, meta-llama/Llama-3.2-1B-Instruct]
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token_id = tokenizer.eos_token_id 
+
+    return tokenizer
 
 def reduce_eos_tokens(
         vector: Tensor
@@ -102,6 +138,7 @@ def put(
     Adds a key-value pair to the ChromaDB collection.
     """
     collection = get_collection()
+    tokenizer = get_tokenizer(base_model=base_model)
     
     # Store the tensor value as a list and its datatype as a string in the metadata
     metadata = get_metadata(
@@ -111,7 +148,7 @@ def put(
     
     # ChromaDB expects lists of values
     embeddings = None 
-    documents = [""]    # Could add actual decoded text
+    documents = [tokenizer.decode(value)]    # Could add actual decoded text
     metadatas = [metadata]
     ids = [str(hash(tuple(key.tolist())))]
 
