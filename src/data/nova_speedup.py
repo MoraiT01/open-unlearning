@@ -1,9 +1,13 @@
-from torch import Tensor, tensor, flip, nonzero
+import os
+os.environ["OMP_THREAD_AFFINITY"] = "FALSE"
+os.environ["CHROMA_TELEMETRY_IS_DISABLED"] = "1"
+
+from torch import Tensor, tensor, flip, nonzero, cat
 from torch import (
     float16, float32, float64, int8, int16, int32, int64
 )
 from transformers import AutoTokenizer
-import chromadb.utils.embedding_functions as embedding_functions
+from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
 import chromadb
 from typing import Dict, Any
 
@@ -11,7 +15,7 @@ from typing import Dict, Any
 ROOT_DIR = "saves/chromadb"
 client = chromadb.PersistentClient(path=ROOT_DIR)
 
-HF_TOKEN= # Your Token
+HF_TOKEN = # Your Token
 TOKENIZER_MAPPING = {
     "Llama-3.1-8B-Instruct": "meta-llama/Llama-3.1-8B-Instruct",
     "Llama-3.2-3B-Instruct": "meta-llama/Llama-3.2-3B-Instruct",
@@ -25,14 +29,11 @@ def get_collection() -> chromadb.Collection:
     Retrieves or creates the ChromaDB collection.
     """
     
-    huggingface_ef = embedding_functions.HuggingFaceEmbeddingFunction(
-        api_key=HF_TOKEN,
-        model_name="sentence-transformers/all-MiniLM-L6-v2"
-    )
+    embedding_fct = DefaultEmbeddingFunction()
 
     return client.get_or_create_collection(
         name=COLLECTION_NAME,
-        embedding_function=huggingface_ef,
+        embedding_function=embedding_fct,
     )
 
 def get_tokenizer(
@@ -87,8 +88,8 @@ def reduce_eos_tokens(
         cutter =  diff_indices[0].item()
 
     if cutter == 1:
-        return vector
-    return vector[:-(cutter-1)]
+        return vector, tensor([])
+    return vector[:-(cutter-1)], vector[-(cutter-1):]
 
 def get_metadata(
     base_model: str,
@@ -97,7 +98,8 @@ def get_metadata(
     reg_term: float,
     soft_target: bool,
     tensor_value: str = None,
-    tensor_dtype: str = None, 
+    tensor_dtype: str = None,
+    eos: str = None,
     as_filter: bool = False,
 ) -> Dict[str, Any]:
     """
@@ -123,6 +125,7 @@ def get_metadata(
         "soft_target": soft_target,
         "tensor_value": tensor_value,
         "tensor_dtype": tensor_dtype,
+        "eos": eos
     }
 
 def put(
@@ -139,12 +142,12 @@ def put(
     """
     collection = get_collection()
     tokenizer = get_tokenizer(base_model=base_model)
+    key, eos = reduce_eos_tokens(key)
     
     # Store the tensor value as a list and its datatype as a string in the metadata
     metadata = get_metadata(
-        base_model, noise_epochs, noise_lr, reg_term, soft_target, str(value.tolist()), str(value.dtype)
+        base_model, noise_epochs, noise_lr, reg_term, soft_target, str(value.tolist()), str(value.dtype), eos=str(eos.tolist()),
     )
-    key = reduce_eos_tokens(key)
     
     # ChromaDB expects lists of values
     embeddings = None 
@@ -193,6 +196,7 @@ def get(
         # Retrieve the list and datatype from metadata and convert back to a tensor
         tensor_str = results['metadatas'][0].get('tensor_value')
         tensor_dtype_str = results['metadatas'][0].get('tensor_dtype')
+        eos_tensor_str = results['metadatas'][0].get('eos')
         
         # Use a mapping to get the correct torch.dtype from the string
         # This is a robust way to handle the conversion
@@ -209,8 +213,9 @@ def get(
         dtype = dtype_map.get(tensor_dtype_str, None)
         if dtype is None:
             raise ValueError(f"Unknown tensor dtype: {tensor_dtype_str}")
-
-        return tensor(eval(tensor_str), dtype=dtype)
+        t1 = tensor(eval(tensor_str), dtype=dtype)
+        eos_tail = tensor(eval(eos_tensor_str), dtype=dtype)
+        return cat([t1, eos_tail], dim=0)
     else:
         raise KeyError("The sample you are looking for does not exist")
 
