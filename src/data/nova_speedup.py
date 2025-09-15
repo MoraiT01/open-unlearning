@@ -60,12 +60,25 @@ def get_metadata(
     noise_lr: float,
     reg_term: float,
     soft_target: bool,
-    tensor_value: List[float] | List[int],
-    tensor_dtype: str, # New parameter for the tensor's datatype
+    tensor_value: List[float] | List[int] = None,
+    tensor_dtype: str = None, 
+    as_filter: bool = False,
 ) -> Dict[str, Any]:
     """
     Creates a metadata dictionary from the input parameters.
     """
+    if as_filter:
+        return {
+            "$and": [
+                {"base_model": {"$eq": base_model}},
+                {"noise_epochs": {"$eq": noise_epochs}},
+                {"noise_lr": {"$eq": noise_lr}},
+                {"reg_term": {"$eq": reg_term}},
+                {"soft_target": {"$eq": soft_target}},
+            ]
+        }
+    if tensor_dtype == None and tensor_value == None:
+        raise Exception("No values parsed for: 'tensor_value', 'tensor_dtype'!")
     return {
         "base_model": base_model,
         "noise_epochs": noise_epochs,
@@ -177,13 +190,14 @@ def exists(
     collection = get_collection()
 
     sample = reduce_eos_tokens(sample)
-    metadata_filter = {
-        "base_model": base_model,
-        "noise_epochs": noise_epochs,
-        "noise_lr": noise_lr,
-        "reg_term": reg_term,
-        "soft_target": soft_target,
-    }
+    metadata_filter = get_metadata(
+        base_model=base_model,
+        noise_epochs=noise_epochs,
+        noise_lr=noise_lr,
+        reg_term=reg_term,
+        soft_target=soft_target,
+        as_filter=True,
+    )
     
     results = collection.get(
         ids=[str(hash(tuple(sample.tolist())))],
@@ -206,13 +220,14 @@ def delete(
     collection = get_collection()
     
     sample = reduce_eos_tokens(sample)
-    metadata_filter = {
-        "base_model": base_model,
-        "noise_epochs": noise_epochs,
-        "noise_lr": noise_lr,
-        "reg_term": reg_term,
-        "soft_target": soft_target,
-    }
+    metadata_filter = get_metadata(
+        base_model=base_model,
+        noise_epochs=noise_epochs,
+        noise_lr=noise_lr,
+        reg_term=reg_term,
+        soft_target=soft_target,
+        as_filter=True,
+    )
 
     try:
         collection.delete(
