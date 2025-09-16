@@ -167,7 +167,7 @@ class NOVA(UnlearnTrainer):
                 with torch.no_grad():
                     # Get the embedding for the EOS token ID.
                     # The embedding layer is a lookup table, so we pass the token ID as a tensor.
-                    self.eos_embedding = embedding_layer(torch.tensor(eos_token_id).to(model.device))
+                    self.eos_embedding = embedding_layer(torch.tensor(eos_token_id).to(model.device))[-1:]
                     logger.info(f"EOS token embedding shape: {self.eos_embedding.shape}")
             else:
                 logger.warning("EOS token ID not found in model config.")
@@ -199,7 +199,7 @@ class NOVA(UnlearnTrainer):
                         reg_term=self.regularization_term,
                         soft_target=self.soft_target,
                         sample=torch.squeeze(single_forget_input["input_ids"], 0),
-                    )
+                    ).to(model.device)
                 )
             else:
                 # Create a new AntiPattern instance and optimizer for the single sample
