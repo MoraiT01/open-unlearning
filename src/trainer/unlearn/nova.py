@@ -103,7 +103,7 @@ class NOVA(UnlearnTrainer):
         max_length = max(s.size(1) for s in sequences)
 
         # Reshape the EOS embedding to be a row vector
-        eos_embedding_reshaped = self.eos_embedding.view(1, self.embedding_dim)
+        eos_embedding_reshaped = self.eos_embedding
 
         padded_sequences = []
 
@@ -126,7 +126,7 @@ class NOVA(UnlearnTrainer):
 
         # 3. Stack the padded tensors to create a batch
         batch = torch.stack(padded_sequences, dim=0)
-        
+
         return batch
 
     def _optimize_anti_pattern_for_batch(self, model, forget_inputs_original):
