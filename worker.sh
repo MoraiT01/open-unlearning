@@ -25,7 +25,7 @@ source /fast_storage/kastler/miniconda3/etc/profile.d/conda.sh
 # Now activate your environment
 conda activate /fast_storage/kastler/miniconda3/envs/unlearning
 
-
+export OMP_THREAD_AFFINITY=FALSE
 ### Now you may start your operations below ###
 
 # Run your single-trial Python script

@@ -1,5 +1,4 @@
 import os
-os.environ["OMP_THREAD_AFFINITY"] = "FALSE"
 os.environ["CHROMA_TELEMETRY_IS_DISABLED"] = "1"
 
 from torch import Tensor, tensor, flip, nonzero

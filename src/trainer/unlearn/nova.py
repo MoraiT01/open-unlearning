@@ -101,11 +101,10 @@ class NOVA(UnlearnTrainer):
 
         # 1. Find the maximum sequence length
         max_length = max(s.size(0) for s in sequences)
-        embedding_dim = sequences[0].size(1)
 
         # Reshape the EOS embedding to be a row vector for padding
         # The shape needs to match the dimensions being padded: (1, embedding_dim)
-        eos_embedding_reshaped = self.eos_embedding.view(1, embedding_dim)
+        eos_embedding_reshaped = self.eos_embedding.view(1, self.embedding_dim)
 
         padded_sequences = []
 
@@ -147,7 +146,9 @@ class NOVA(UnlearnTrainer):
         model.eval() # Freeze the main model's parameters
 
         batch_size, seq_len = forget_inputs_original["input_ids"].shape
-        embedding_dim = model.config.hidden_size
+        if not hasattr(self, 'embedding_dim'):
+            self.embedding_dim = model.config.hidden_size
+            logger.info(f"Embedding dimension: {self.embedding_dim}")
 
         # Get the embedding of the end-of-sequence (EOS) token
         # This code will execute only on the first call to compute_loss()
@@ -168,7 +169,6 @@ class NOVA(UnlearnTrainer):
                     # The embedding layer is a lookup table, so we pass the token ID as a tensor.
                     self.eos_embedding = embedding_layer(torch.tensor(eos_token_id).to(model.device))
                     logger.info(f"EOS token embedding shape: {self.eos_embedding.shape}")
-                    logger.info(f"EOS embedding value (first 5 dimensions): {self.eos_embedding[:5]}")
             else:
                 logger.warning("EOS token ID not found in model config.")
 
@@ -206,7 +206,7 @@ class NOVA(UnlearnTrainer):
                 anti_pattern_instance = AntiPattern(
                     batch_size=1,
                     seq_len=seq_len,
-                    embedding_dim=embedding_dim,
+                    embedding_dim=self.embedding_dim,
                     attention_mask=single_attention_mask
                 ).to(model.device)
                 optimizer_for_this_sample = torch.optim.Adam(anti_pattern_instance.parameters(), lr=self.noise_lr)
