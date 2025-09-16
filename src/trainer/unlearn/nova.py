@@ -85,6 +85,50 @@ class NOVA(UnlearnTrainer):
         # We need the logits to compute KL Divergence later.
         # outputs.logits will have shape (batch_size, sequence_length, vocab_size)
         return outputs.logits
+    
+    def custom_padding_function(self, sequences: list[torch.Tensor]) -> torch.Tensor:
+        """
+        Pads a list of 2D tensors with a specific EOS embedding vector stored in self.eos_embedding.
+
+        Args:
+            sequences (list[torch.Tensor]): A list of tensors, each of shape (sequence_length, embedding_dim).
+
+        Returns:
+            torch.Tensor: A single batched tensor of shape (batch_size, max_seq_length, embedding_dim).
+        """
+        if not sequences:
+            return torch.tensor([])
+
+        # 1. Find the maximum sequence length
+        max_length = max(s.size(0) for s in sequences)
+        embedding_dim = sequences[0].size(1)
+
+        # Reshape the EOS embedding to be a row vector for padding
+        # The shape needs to match the dimensions being padded: (1, embedding_dim)
+        eos_embedding_reshaped = self.eos_embedding.view(1, embedding_dim)
+
+        padded_sequences = []
+
+        # 2. Pad each tensor to the maximum length
+        for seq in sequences:
+            current_length = seq.size(0)
+            padding_needed = max_length - current_length
+
+            if padding_needed > 0:
+                # Create a tensor of the EOS embedding repeated for the padding length
+                padding_tensor = eos_embedding_reshaped.repeat(padding_needed, 1)
+
+                # Concatenate the original sequence with the padding tensor
+                padded_seq = torch.cat([seq, padding_tensor], dim=0)
+            else:
+                padded_seq = seq
+            
+            padded_sequences.append(padded_seq)
+
+        # 3. Stack the padded tensors to create a batch
+        batch = torch.stack(padded_sequences, dim=0)
+
+        return batch
 
     def _optimize_anti_pattern_for_batch(self, model, forget_inputs_original):
         """
@@ -104,6 +148,30 @@ class NOVA(UnlearnTrainer):
 
         batch_size, seq_len = forget_inputs_original["input_ids"].shape
         embedding_dim = model.config.hidden_size
+
+        # Get the embedding of the end-of-sequence (EOS) token
+        # This code will execute only on the first call to compute_loss()
+        if not hasattr(self, 'eos_embedding'):
+            # Access the model's embedding layer.
+            # Assuming the model has a `get_input_embeddings()` method.
+            embedding_layer = model.get_input_embeddings()
+            
+            # Get the ID of the EOS token from the tokenizer config.
+            # Assuming the tokenizer is accessible via model.config.
+            eos_token_id = model.config.eos_token_id
+            
+            # Ensure the EOS token ID is valid.
+            if eos_token_id is not None:
+                # Use torch.no_grad() to avoid tracking gradients for this operation.
+                with torch.no_grad():
+                    # Get the embedding for the EOS token ID.
+                    # The embedding layer is a lookup table, so we pass the token ID as a tensor.
+                    self.eos_embedding = embedding_layer(torch.tensor(eos_token_id).to(model.device))
+                    logger.info(f"EOS token embedding shape: {self.eos_embedding.shape}")
+                    logger.info(f"EOS embedding value (first 5 dimensions): {self.eos_embedding[:5]}")
+            else:
+                logger.warning("EOS token ID not found in model config.")
+
         all_optimized_perturbations = []
 
         # Iterate through each sample in the batch
@@ -196,7 +264,7 @@ class NOVA(UnlearnTrainer):
                 logger.info(f"Sample {i+1}/{batch_size} Anti-pattern Training done; Final Loss: {anti_pattern_loss.item():.4f}")
 
         model.train(original_training_state)
-        return torch.cat(all_optimized_perturbations, dim=0)
+        return self.custom_padding_function(all_optimized_perturbations)
 
     def compute_intermediate_loss(self, model: nn.Module, inputs: dict, uses_embeds: bool = False, soft_targets_for_loss: torch.Tensor | None = None):
         """
