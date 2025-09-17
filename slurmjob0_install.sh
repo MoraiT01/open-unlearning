@@ -38,6 +38,3 @@ pip install --no-build-isolation flash-attn==2.6.3
 
 pip install optuna==4.3.0
 pip install optuna-dashboard==0.18.0
-
-pip uninstall posthog
-pip install posthog==2.4.2
