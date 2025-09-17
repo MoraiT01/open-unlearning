@@ -99,32 +99,30 @@ class NOVA(UnlearnTrainer):
         if not sequences:
             return torch.tensor([])
 
-        # 1. Find the maximum sequence length from the second dimension (dim=1)
+        # 1. Find the maximum sequence length from the second dimension (dim=1) of the inner tensors.
         max_length = max(s.size(1) for s in sequences)
-
-        # Reshape the EOS embedding to be a row vector
-        eos_embedding_reshaped = self.eos_embedding
 
         padded_sequences = []
 
-        # 2. Pad each tensor to the maximum length
-        for seq in sequences:
-            for single_seq in seq:
-                current_length = single_seq.size(0)
-                padding_needed = max_length - current_length
+        # 2. Pad each tensor to the maximum length.
+        for seq_tensor in sequences:
+            single_seq = seq_tensor.squeeze(0) 
+            current_length = single_seq.size(0)
+            padding_needed = max_length - current_length
 
-                if padding_needed > 0:
-                    # Create a tensor of the EOS embedding repeated for the padding length
-                    padding_tensor = eos_embedding_reshaped.repeat(padding_needed, 1)
+            if padding_needed > 0:
+                # Create a tensor of zeros for padding.
+                # You can use your `self.eos_embedding` if you prefer.
+                padding_tensor = self.eos_embedding.repeat(padding_needed, 1)
+                
+                # Concatenate the original sequence with the padding tensor along dim=0
+                padded_seq = torch.cat([single_seq, padding_tensor], dim=0)
+            else:
+                padded_seq = single_seq
 
-                    # Concatenate the original sequence with the padding tensor along dim=0
-                    padded_seq = torch.cat([single_seq, padding_tensor], dim=0)
-                else:
-                    padded_seq = single_seq
+            padded_sequences.append(padded_seq)
 
-                padded_sequences.append(padded_seq)
-
-        # 3. Stack the padded tensors to create a batch
+        # 3. Stack the padded tensors to create a batch.
         batch = torch.stack(padded_sequences, dim=0)
 
         return batch

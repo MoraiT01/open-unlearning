@@ -8,6 +8,7 @@ from torch import (
 from transformers import AutoTokenizer
 from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
 import chromadb
+import uuid
 from typing import Dict, Any
 
 # Initialize the ChromaDB client
@@ -96,6 +97,7 @@ def get_metadata(
     noise_lr: float,
     reg_term: float,
     soft_target: bool,
+    tensor_key: str,
     tensor_value: str = None,
     tensor_dtype: str = None,
     as_filter: bool = False,
@@ -111,6 +113,7 @@ def get_metadata(
                 {"noise_lr": {"$eq": noise_lr}},
                 {"reg_term": {"$eq": reg_term}},
                 {"soft_target": {"$eq": soft_target}},
+                {"tensor_key": {"$eq": tensor_key}},
             ]
         }
     if tensor_dtype == None and tensor_value == None:
@@ -121,6 +124,7 @@ def get_metadata(
         "noise_lr": noise_lr,
         "reg_term": reg_term,
         "soft_target": soft_target,
+        "tensor_key": tensor_key,
         "tensor_value": tensor_value,
         "tensor_dtype": tensor_dtype,
     }
@@ -143,14 +147,14 @@ def put(
     
     # Store the tensor value as a list and its datatype as a string in the metadata
     metadata = get_metadata(
-        base_model, noise_epochs, noise_lr, reg_term, soft_target, str(value.tolist()), str(value.dtype),
+        base_model, noise_epochs, noise_lr, reg_term, soft_target, str(key.tolist()), str(value.tolist()), str(value.dtype),
     )
     
     # ChromaDB expects lists of values
     embeddings = None 
     documents = [tokenizer.decode(key)]    # Could add actual decoded text
     metadatas = [metadata]
-    ids = [str(hash(tuple(key.tolist())))]
+    ids = str(uuid.uuid4())
 
     collection.add(
         embeddings=embeddings,
@@ -181,11 +185,11 @@ def get(
         noise_lr=noise_lr,
         reg_term=reg_term,
         soft_target=soft_target,
+        tensor_key=str(sample.tolist()),
         as_filter=True,
     )
 
     results = collection.get(
-        ids=[str(hash(tuple(sample.tolist())))],
         where=metadata_filter
     )
     
@@ -233,11 +237,11 @@ def exists(
         noise_lr=noise_lr,
         reg_term=reg_term,
         soft_target=soft_target,
+        tensor_key=str(sample.tolist()),
         as_filter=True,
     )
     
     results = collection.get(
-        ids=[str(hash(tuple(sample.tolist())))],
         where=metadata_filter
     )
     
@@ -263,12 +267,12 @@ def delete(
         noise_lr=noise_lr,
         reg_term=reg_term,
         soft_target=soft_target,
+        tensor_key=str(sample.tolist()),
         as_filter=True,
     )
 
     try:
         collection.delete(
-            ids=[str(hash(tuple(sample.tolist())))],
             where=metadata_filter
         )
         print("✅ Successfully deleted document.")
