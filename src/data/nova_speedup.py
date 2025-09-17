@@ -1,7 +1,7 @@
 import os
 os.environ["CHROMA_TELEMETRY_IS_DISABLED"] = "1"
 
-from torch import Tensor, tensor, flip, nonzero
+from torch import Tensor, tensor
 from torch import (
     float16, float32, float64, int8, int16, int32, int64
 )
@@ -58,39 +58,6 @@ def get_tokenizer(
 
     return tokenizer
 
-def reduce_eos_tokens(
-        vector: Tensor
-) -> Tensor:
-    """
-    Removes trailing duplicate values from a 1D PyTorch Tensor.
-
-    Args:
-        tensor (torch.Tensor): A 1D tensor.
-
-    Returns:
-        torch.Tensor: A new tensor with trailing duplicates removed.
-    """
-    if vector.dim() != 1 or vector.numel() == 0:
-        return vector
-    # Get the last value of the vector
-    last_value = vector[-1]
-
-    # Reverse the vector to find the first element that's different
-    reversed_vector = flip(vector, dims=[0])
-
-    # Find all indices where the values are NOT equal to the last value
-    diff_indices = nonzero(reversed_vector != last_value)
-    if diff_indices.numel() == 0:
-        # If no different values are found, the entire vector is the tail
-        cutter = len(vector)
-    else:
-        # The length of the tail is the index of the first different value
-        cutter =  diff_indices[0].item()
-
-    if cutter == 1:
-        return vector
-    return vector[:-(cutter-1)]
-
 def get_metadata(
     base_model: str,
     noise_epochs: int,
@@ -143,7 +110,6 @@ def put(
     """
     collection = get_collection()
     tokenizer = get_tokenizer(base_model=base_model)
-    key = reduce_eos_tokens(key)
     
     # Store the tensor value as a list and its datatype as a string in the metadata
     metadata = get_metadata(
@@ -176,8 +142,7 @@ def get(
     Retrieves the value associated with a sample vector from ChromaDB.
     """
     collection = get_collection()
-    
-    sample = reduce_eos_tokens(sample)
+
     # Define the filter for metadata, excluding the tensor value and dtype
     metadata_filter = get_metadata(
         base_model=base_model,
@@ -230,7 +195,6 @@ def exists(
     """
     collection = get_collection()
 
-    sample = reduce_eos_tokens(sample)
     metadata_filter = get_metadata(
         base_model=base_model,
         noise_epochs=noise_epochs,
@@ -260,7 +224,6 @@ def delete(
     """
     collection = get_collection()
     
-    sample = reduce_eos_tokens(sample)
     metadata_filter = get_metadata(
         base_model=base_model,
         noise_epochs=noise_epochs,
