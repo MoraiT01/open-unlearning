@@ -199,6 +199,15 @@ class NOVA(UnlearnTrainer):
                         sample=torch.squeeze(single_forget_input["input_ids"], 0),
                     ).to(model.device)
                 )
+
+                logger.debug(f"The shape of the get() antipattern: {data.nova_speedup.get(
+                        base_model=self.model_name,
+                        noise_epochs=self.noise_epochs,
+                        noise_lr=self.noise_lr,
+                        reg_term=self.regularization_term,
+                        soft_target=self.soft_target,
+                        sample=torch.squeeze(single_forget_input["input_ids"], 0),
+                    ).to(model.device).shape}")
             else:
                 # Create a new AntiPattern instance and optimizer for the single sample
                 anti_pattern_instance = AntiPattern(
@@ -257,9 +266,13 @@ class NOVA(UnlearnTrainer):
                     key=torch.squeeze(single_forget_input["input_ids"], 0),
                     value=anti_pattern_instance.pattern.detach(),
                 )
+                logger.debug(f"The shape of the put() antipattern: {anti_pattern_instance.pattern.detach().shape}")
 
                 all_optimized_perturbations.append(anti_pattern_instance.pattern.detach())
                 logger.info(f"Sample {i+1}/{batch_size} Anti-pattern Training done; Final Loss: {anti_pattern_loss.item():.4f}")
+            
+            logger.debug(f"The shape of parsed attention mask: {single_attention_mask.shape}")
+            logger.debug(f"The shape of parsed labels: {ap_labels_for_model_call.shape if ap_labels_for_model_call is not None else ap_target}")
 
         model.train(original_training_state)
         return self.custom_padding_function(all_optimized_perturbations)
@@ -319,6 +332,10 @@ class NOVA(UnlearnTrainer):
     def compute_loss(self, model, inputs, return_outputs=False):
         forget_inputs = inputs["forget"]
         retain_inputs = inputs["retain"]
+
+        logger.debug(f"The shape of the forget Inputs ids: {forget_inputs["input_ids"].shape}")
+        logger.debug(f"The shape of the forget Inputs ids: {forget_inputs["labels"].shape}")
+        logger.debug(f"The shape of the forget Inputs ids: {forget_inputs["attention_mask"].shape}")
 
         if self.model_name is None:
             self.model_name = model.config._name_or_path

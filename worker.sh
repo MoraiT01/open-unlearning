@@ -14,7 +14,6 @@
 
 # Run the Python script
 srun hostname
-export OMP_THREAD_AFFINITY=FALSE
 
 # If you still need to setup the environment:
 # bash slurmjob0_install.sh
