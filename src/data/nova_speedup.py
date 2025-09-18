@@ -6,6 +6,7 @@ from torch import (
     float16, float32, float64, int8, int16, int32, int64
 )
 from transformers import AutoTokenizer
+from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
 import chromadb
 import uuid
 from typing import Dict, Any
@@ -27,10 +28,11 @@ def get_collection() -> chromadb.Collection:
     """
     Retrieves or creates the ChromaDB collection.
     """
+    embedding_fct = DefaultEmbeddingFunction()
 
     return client.get_or_create_collection(
         name=COLLECTION_NAME,
-        embedding_function=None,
+        embedding_function=embedding_fct,
     )
 
 def get_tokenizer(
