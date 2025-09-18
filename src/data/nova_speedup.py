@@ -6,7 +6,6 @@ from torch import (
     float16, float32, float64, int8, int16, int32, int64
 )
 from transformers import AutoTokenizer
-from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
 import chromadb
 import uuid
 from typing import Dict, Any
@@ -15,7 +14,7 @@ from typing import Dict, Any
 ROOT_DIR = "saves/chromadb"
 client = chromadb.PersistentClient(path=ROOT_DIR)
 
-HF_TOKEN = # Your Token
+HF_TOKEN = "" # Your Token
 TOKENIZER_MAPPING = {
     "Llama-3.1-8B-Instruct": "meta-llama/Llama-3.1-8B-Instruct",
     "Llama-3.2-3B-Instruct": "meta-llama/Llama-3.2-3B-Instruct",
@@ -28,12 +27,10 @@ def get_collection() -> chromadb.Collection:
     """
     Retrieves or creates the ChromaDB collection.
     """
-    
-    embedding_fct = DefaultEmbeddingFunction()
 
     return client.get_or_create_collection(
         name=COLLECTION_NAME,
-        embedding_function=embedding_fct,
+        embedding_function=None,
     )
 
 def get_tokenizer(
@@ -64,9 +61,9 @@ def get_metadata(
     noise_lr: float,
     reg_term: float,
     soft_target: bool,
-    tensor_key: str,
-    tensor_value: str = None,
-    tensor_dtype: str = None,
+    sample_key_str: str,
+    anti_pattern_str: str = "",
+    anti_pattern_dtype_str: str = "",
     as_filter: bool = False,
 ) -> Dict[str, Any]:
     """
@@ -80,10 +77,10 @@ def get_metadata(
                 {"noise_lr": {"$eq": noise_lr}},
                 {"reg_term": {"$eq": reg_term}},
                 {"soft_target": {"$eq": soft_target}},
-                {"tensor_key": {"$eq": tensor_key}},
+                {"sample_key_str": {"$eq": sample_key_str}},
             ]
         }
-    if tensor_dtype == None and tensor_value == None:
+    if anti_pattern_str == "" and anti_pattern_dtype_str == "":
         raise Exception("No values parsed for: 'tensor_value', 'tensor_dtype'!")
     return {
         "base_model": base_model,
@@ -91,9 +88,9 @@ def get_metadata(
         "noise_lr": noise_lr,
         "reg_term": reg_term,
         "soft_target": soft_target,
-        "tensor_key": tensor_key,
-        "tensor_value": tensor_value,
-        "tensor_dtype": tensor_dtype,
+        "sample_key_str": sample_key_str,
+        "anti_pattern_str": anti_pattern_str,
+        "anti_pattern_dtype_str": anti_pattern_dtype_str,
     }
 
 def put(
@@ -102,8 +99,9 @@ def put(
     noise_lr: float,
     reg_term: float,
     soft_target: bool,
-    key: Tensor,
-    value: Tensor,
+    sample: Tensor,
+    anti_pattern: Tensor,
+    embedding: Tensor,
 ):
     """
     Adds a key-value pair to the ChromaDB collection.
@@ -113,17 +111,17 @@ def put(
     
     # Store the tensor value as a list and its datatype as a string in the metadata
     metadata = get_metadata(
-        base_model, noise_epochs, noise_lr, reg_term, soft_target, str(key.tolist()), str(value.tolist()), str(value.dtype),
+        base_model, noise_epochs, noise_lr, reg_term, soft_target, str(sample.tolist()), str(anti_pattern.tolist()), str(anti_pattern.dtype),
     )
     
     # ChromaDB expects lists of values
-    embeddings = None 
-    documents = [tokenizer.decode(key)]    # Could add actual decoded text
+    embedding_list = [embedding.tolist()]
+    documents = [tokenizer.decode(sample.tolist(), skip_special_tokens=True)]
     metadatas = [metadata]
     ids = str(uuid.uuid4())
 
     collection.add(
-        embeddings=embeddings,
+        embeddings=embedding_list,
         documents=documents,
         metadatas=metadatas,
         ids=ids,
@@ -150,7 +148,7 @@ def get(
         noise_lr=noise_lr,
         reg_term=reg_term,
         soft_target=soft_target,
-        tensor_key=str(sample.tolist()),
+        sample_key_str=str(sample.tolist()),
         as_filter=True,
     )
 
@@ -160,8 +158,8 @@ def get(
     
     if results['metadatas'] and results['metadatas'][0]:
         # Retrieve the list and datatype from metadata and convert back to a tensor
-        tensor_str = results['metadatas'][0].get('tensor_value')
-        tensor_dtype_str = results['metadatas'][0].get('tensor_dtype')
+        anti_pattern_str = results['metadatas'][0].get('anti_pattern_str')
+        anti_pattern_dtype_str = results['metadatas'][0].get('anti_pattern_dtype_str')
         
         # Use a mapping to get the correct torch.dtype from the string
         # This is a robust way to handle the conversion
@@ -175,10 +173,10 @@ def get(
             'torch.int64': int64,
         }
         
-        dtype = dtype_map.get(tensor_dtype_str, None)
+        dtype = dtype_map.get(anti_pattern_dtype_str, None)
         if dtype is None:
-            raise ValueError(f"Unknown tensor dtype: {tensor_dtype_str}")
-        return tensor(eval(tensor_str), dtype=dtype)
+            raise ValueError(f"Unknown tensor dtype: {anti_pattern_dtype_str}")
+        return tensor(eval(anti_pattern_str), dtype=dtype)
     else:
         raise KeyError("The sample you are looking for does not exist")
 
@@ -201,7 +199,7 @@ def exists(
         noise_lr=noise_lr,
         reg_term=reg_term,
         soft_target=soft_target,
-        tensor_key=str(sample.tolist()),
+        sample_key_str=str(sample.tolist()),
         as_filter=True,
     )
     
@@ -230,7 +228,7 @@ def delete(
         noise_lr=noise_lr,
         reg_term=reg_term,
         soft_target=soft_target,
-        tensor_key=str(sample.tolist()),
+        sample_key_str=str(sample.tolist()),
         as_filter=True,
     )
 

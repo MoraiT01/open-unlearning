@@ -54,8 +54,6 @@ class NOVA(UnlearnTrainer):
         # Initialize KLDivLoss for soft targets
         self.kl_loss_fct = nn.KLDivLoss(reduction='batchmean') # Use 'batchmean' or 'sum' as appropriate
 
-        self.model_name = None
-
     def get_soft_target(self, model: nn.Module, forget_inputs: dict) -> torch.Tensor:
         """
         Generates soft targets (logits) for the forget inputs by passing them
@@ -97,26 +95,26 @@ class NOVA(UnlearnTrainer):
         Returns:
             torch.Tensor: A new tensor with trailing duplicates removed.
         """
-        if sample["input_ids"].dim() != 1 or sample["input_ids"].numel() == 0:
+        if sample["input_ids"].dim() != 2 or sample["input_ids"].numel() == 0:
+            print("Sample is not a 2D tensor")
             return sample
-        # Get the last value of the sample
+
         last_value = self.eos_token_id
-
-        # Reverse the sample to find the first element that's different
-        reversed_sample = torch.flip(sample["input_ids"], dims=[0])
-
-        # Find all indices where the values are NOT equal to the last value
-        diff_indices = torch.nonzero(reversed_sample != last_value)
+        reversed_input = torch.flip(sample["input_ids"].squeeze(0), dims=[0])
+        diff_indices = torch.nonzero(reversed_input != last_value)
+        
         if diff_indices.numel() == 0:
-            # If no different values are found, the entire sample is the tail
-            cutter = len(sample)
+            # All elements are the last_value
+            cutter = len(sample["input_ids"][0])
         else:
             # The length of the tail is the index of the first different value
-            cutter =  diff_indices[0].item()
+            cutter = diff_indices[0][0].item()
 
-        if cutter == 1:
+        if cutter <= 1:
             return sample
-        return {key: value[:-(cutter-1)] for key, value in sample.items()}
+        print(cutter)
+
+        return {key: value[:, :-(cutter - 1)] for key, value in sample.items()}
         
     def custom_padding_function(self, sequences: list[torch.Tensor]) -> torch.Tensor:
         """
@@ -318,17 +316,14 @@ class NOVA(UnlearnTrainer):
                     noise_lr=self.noise_lr,
                     reg_term=self.regularization_term,
                     soft_target=self.soft_target,
-                    key=torch.squeeze(single_forget_input["input_ids"], 0),
-                    value=anti_pattern_instance.pattern.detach(),
+                    sample=torch.squeeze(single_forget_input["input_ids"], 0),
+                    anti_pattern=anti_pattern_instance.pattern.detach(),
+                    embedding=torch.squeeze(model.get_input_embeddings(torch.tensor(single_forget_input["input_ids"]).to(model.device)), 0),
                 )
-                logger.debug(f"The shape of the put() antipattern: {anti_pattern_instance.pattern.detach().shape}")
 
                 all_optimized_perturbations.append(anti_pattern_instance.pattern.detach())
                 logger.info(f"Sample {i+1}/{batch_size} Anti-pattern Training done; Final Loss: {anti_pattern_loss.item():.4f}")
             
-            logger.debug(f"The shape of parsed attention mask: {single_attention_mask.shape}")
-            logger.debug(f"The shape of parsed labels: {ap_labels_for_model_call.shape if ap_labels_for_model_call is not None else ap_target}")
-
         model.train(original_training_state)
         return all_optimized_perturbations
 
@@ -388,7 +383,7 @@ class NOVA(UnlearnTrainer):
         forget_inputs = inputs["forget"]
         retain_inputs = inputs["retain"]
 
-        if self.model_name is None:
+        if not hasattr(self, 'model_name'):
             self.model_name = model.config._name_or_path
 
         # --- Phase 1: Optimize a batch-specific AntiPattern and get its output ---
