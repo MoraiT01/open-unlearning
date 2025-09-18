@@ -112,7 +112,6 @@ class NOVA(UnlearnTrainer):
 
         if cutter <= 1:
             return sample
-        print(cutter)
 
         return {key: value[:, :-(cutter - 1)] for key, value in sample.items()}
         
