@@ -256,6 +256,7 @@ class NOVA(UnlearnTrainer):
                         reg_term=self.regularization_term,
                         soft_target=self.soft_target,
                         sample=torch.squeeze(single_forget_input["input_ids"], 0),
+                        to=model.device,
                     ).to(model.device)
                 )
 
@@ -268,7 +269,7 @@ class NOVA(UnlearnTrainer):
                     embedding_dim=self.embedding_dim,
                     # attention_mask=single_attention_mask,
                 ).to(model.device)
-                optimizer_for_this_sample = torch.optim.Adam(anti_pattern_instance.parameters(), lr=self.noise_lr)
+                optimizer_for_this_sample = torch.optim.Adam(anti_pattern_instance.parameters(), lr=self.noise_lr) # type: ignore
 
                 # Prepare the target for anti-pattern optimization
                 if self.soft_target:

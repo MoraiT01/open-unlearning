@@ -1,7 +1,7 @@
 import os
 os.environ["CHROMA_TELEMETRY_IS_DISABLED"] = "1"
 
-from torch import Tensor, tensor
+from torch import Tensor, save, load
 from torch import (
     float16, float32, float64, int8, int16, int32, int64
 )
@@ -32,7 +32,7 @@ def get_collection() -> chromadb.Collection:
 
     return client.get_or_create_collection(
         name=COLLECTION_NAME,
-        embedding_function=embedding_fct,
+        embedding_function=embedding_fct,  # type: ignore
     )
 
 def get_tokenizer(
@@ -64,9 +64,9 @@ def get_metadata(
     reg_term: float,
     soft_target: bool,
     sample_key_str: str,
-    anti_pattern_str: str = "",
+    #anti_pattern_str: str = "",
     anti_pattern_dtype_str: str = "",
-    sample_embedding_str: str = "",
+    #sample_embedding_str: str = "",
     as_filter: bool = False,
 ) -> Dict[str, Any]:
     """
@@ -83,7 +83,7 @@ def get_metadata(
                 {"sample_key_str": {"$eq": sample_key_str}},
             ]
         }
-    if anti_pattern_str == "" and anti_pattern_dtype_str == "":
+    if anti_pattern_dtype_str == "": #anti_pattern_str == "" and 
         raise Exception("No values parsed for: 'tensor_value', 'tensor_dtype'!")
     return {
         "base_model": base_model,
@@ -92,9 +92,9 @@ def get_metadata(
         "reg_term": reg_term,
         "soft_target": soft_target,
         "sample_key_str": sample_key_str,
-        "anti_pattern_str": anti_pattern_str,
+        #"anti_pattern_str": anti_pattern_str,
         "anti_pattern_dtype_str": anti_pattern_dtype_str,
-        "sample_embedding_str": sample_embedding_str
+        #"sample_embedding_str": sample_embedding_str
     }
 
 def put(
@@ -121,9 +121,9 @@ def put(
         reg_term,
         soft_target,
         str(sample.tolist()),
-        str(anti_pattern.tolist()),
+        #str(anti_pattern.tolist()),
         str(anti_pattern.dtype),
-        str(sample_embedding.tolist()),
+        #str(sample_embedding.tolist()),
     )
     
     # ChromaDB expects lists of values
@@ -135,9 +135,15 @@ def put(
     collection.add(
         embeddings=embedding_list,
         documents=documents,
-        metadatas=metadatas,
+        metadatas=metadatas,  # type: ignore
         ids=ids,
     )
+
+    os.makedirs(os.path.join(ROOT_DIR, "anti"), exist_ok=True)
+    save(anti_pattern, os.path.join(ROOT_DIR, "anti", f"{ids}.pt"))
+    os.makedirs(os.path.join(ROOT_DIR, "prior_embedding"), exist_ok=True)
+    save(sample_embedding, os.path.join(ROOT_DIR, "prior_embedding", f"{ids}.pt"))
+
     print(f"✅ Saved tensor mapping to ChromaDB collection: {COLLECTION_NAME}")
 
 def get(
@@ -147,6 +153,7 @@ def get(
     reg_term: float,
     soft_target: bool,
     sample: Tensor,
+    to: str,
 ) -> Tensor:
     """
     Retrieves the value associated with a sample vector from ChromaDB.
@@ -170,7 +177,8 @@ def get(
     
     if results['metadatas'] and results['metadatas'][0]:
         # Retrieve the list and datatype from metadata and convert back to a tensor
-        anti_pattern_str = results['metadatas'][0].get('anti_pattern_str')
+        # anti_pattern_str = results['metadatas'][0].get('anti_pattern_str')
+        anti_patter_tensor = load(os.path.join(ROOT_DIR, "anti", f"{results['ids'][0]}.pt"), map_location=to, weights_only=True)
         anti_pattern_dtype_str = results['metadatas'][0].get('anti_pattern_dtype_str')
         
         # Use a mapping to get the correct torch.dtype from the string
@@ -185,10 +193,10 @@ def get(
             'torch.int64': int64,
         }
         
-        dtype = dtype_map.get(anti_pattern_dtype_str, None)
+        dtype = dtype_map.get(anti_pattern_dtype_str, None)  # type: ignore
         if dtype is None:
             raise ValueError(f"Unknown tensor dtype: {anti_pattern_dtype_str}")
-        return tensor(eval(anti_pattern_str), dtype=dtype)
+        return anti_patter_tensor
     else:
         raise KeyError("The sample you are looking for does not exist")
 
@@ -245,9 +253,16 @@ def delete(
     )
 
     try:
-        collection.delete(
+        results = collection.get(
             where=metadata_filter
         )
+
+        collection.delete(
+            ids=[results['ids'][0]]
+        )
+        os.remove(os.path.join(ROOT_DIR, "anti", f"{results['ids'][0]}.pt"))
+        os.remove(os.path.join(ROOT_DIR, "prior_embedding", f"{results['ids'][0]}.pt"))
+
         print("✅ Successfully deleted document.")
         return True
     except Exception as e:
