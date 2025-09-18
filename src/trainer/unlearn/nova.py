@@ -99,7 +99,7 @@ class NOVA(UnlearnTrainer):
             print("Sample is not a 2D tensor")
             return sample
 
-        last_value = self.eos_token_id
+        last_value = self.eos_token_id[0] # We need to Integer not the Tensor; assuming that it a 1D Tensor
         reversed_input = torch.flip(sample["input_ids"].squeeze(0), dims=[0])
         diff_indices = torch.nonzero(reversed_input != last_value)
         
