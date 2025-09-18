@@ -318,7 +318,7 @@ class NOVA(UnlearnTrainer):
                     soft_target=self.soft_target,
                     sample=torch.squeeze(single_forget_input["input_ids"], 0),
                     anti_pattern=anti_pattern_instance.pattern.detach(),
-                    embedding=torch.squeeze(model.get_input_embeddings()(torch.tensor(single_forget_input["input_ids"]).to(model.device)), 0),
+                    sample_embedding=torch.squeeze(model.get_input_embeddings()(torch.tensor(single_forget_input["input_ids"]).to(model.device)), 0),
                 )
 
                 all_optimized_perturbations.append(anti_pattern_instance.pattern.detach())

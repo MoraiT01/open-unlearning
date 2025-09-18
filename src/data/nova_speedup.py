@@ -64,6 +64,7 @@ def get_metadata(
     sample_key_str: str,
     anti_pattern_str: str = "",
     anti_pattern_dtype_str: str = "",
+    sample_embedding_str: str = "",
     as_filter: bool = False,
 ) -> Dict[str, Any]:
     """
@@ -91,6 +92,7 @@ def get_metadata(
         "sample_key_str": sample_key_str,
         "anti_pattern_str": anti_pattern_str,
         "anti_pattern_dtype_str": anti_pattern_dtype_str,
+        "sample_embedding_str": sample_embedding_str
     }
 
 def put(
@@ -101,7 +103,7 @@ def put(
     soft_target: bool,
     sample: Tensor,
     anti_pattern: Tensor,
-    embedding: Tensor,
+    sample_embedding: Tensor,
 ):
     """
     Adds a key-value pair to the ChromaDB collection.
@@ -111,11 +113,19 @@ def put(
     
     # Store the tensor value as a list and its datatype as a string in the metadata
     metadata = get_metadata(
-        base_model, noise_epochs, noise_lr, reg_term, soft_target, str(sample.tolist()), str(anti_pattern.tolist()), str(anti_pattern.dtype),
+        base_model,
+        noise_epochs,
+        noise_lr,
+        reg_term,
+        soft_target,
+        str(sample.tolist()),
+        str(anti_pattern.tolist()),
+        str(anti_pattern.dtype),
+        str(sample_embedding.tolist()),
     )
     
     # ChromaDB expects lists of values
-    embedding_list = [embedding.tolist()]
+    embedding_list = None
     documents = [tokenizer.decode(sample.tolist(), skip_special_tokens=True)]
     metadatas = [metadata]
     ids = str(uuid.uuid4())
