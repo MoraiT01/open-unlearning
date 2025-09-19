@@ -4,6 +4,7 @@ from torch import nn
 import logging
 from trainer.unlearn.base import UnlearnTrainer
 from torch.nn import functional as F
+from typing import List, Dict
 
 import data.nova_speedup
 
@@ -53,8 +54,6 @@ class NOVA(UnlearnTrainer):
         # Initialize KLDivLoss for soft targets
         self.kl_loss_fct = nn.KLDivLoss(reduction='batchmean') # Use 'batchmean' or 'sum' as appropriate
 
-        self.model_name = None
-
     def get_soft_target(self, model: nn.Module, forget_inputs: dict) -> torch.Tensor:
         """
         Generates soft targets (logits) for the forget inputs by passing them
@@ -85,8 +84,107 @@ class NOVA(UnlearnTrainer):
         # We need the logits to compute KL Divergence later.
         # outputs.logits will have shape (batch_size, sequence_length, vocab_size)
         return outputs.logits
+    
+    def reduce_eos_tokens(self, sample: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """
+        Removes trailing duplicate values from a 1D PyTorch Tensor.
 
-    def _optimize_anti_pattern_for_batch(self, model, forget_inputs_original):
+        Args:
+            Dict[str, torch.Tensor]: ['input_ids', 'labels', 'attention_mask']
+
+        Returns:
+            torch.Tensor: A new tensor with trailing duplicates removed.
+        """
+        if sample["input_ids"].dim() != 2 or sample["input_ids"].numel() == 0:
+            print("Sample is not a 2D tensor")
+            return sample
+
+        last_value = self.eos_token_id[0] # We need to Integer not the Tensor; assuming that it a 1D Tensor
+        reversed_input = torch.flip(sample["input_ids"].squeeze(0), dims=[0])
+        diff_indices = torch.nonzero(reversed_input != last_value)
+        
+        if diff_indices.numel() == 0:
+            # All elements are the last_value
+            cutter = len(sample["input_ids"][0])
+        else:
+            # The length of the tail is the index of the first different value
+            cutter = diff_indices[0][0].item()
+
+        if cutter <= 1:
+            return sample
+
+        return {key: value[:, :-(cutter - 1)] for key, value in sample.items()}
+        
+    def custom_padding_function(self, sequences: list[torch.Tensor]) -> torch.Tensor:
+        """
+        Pads a list of 2D tensors with a specific EOS embedding vector stored in self.eos_embedding.
+
+        Args:
+            sequences (list[torch.Tensor]): A list of tensors, each of shape (sequence_length, embedding_dim).
+
+        Returns:
+            torch.Tensor: A single batched tensor of shape (batch_size, max_seq_length, embedding_dim).
+        """
+        if not sequences:
+            return torch.tensor([])
+
+        # 1. Find the maximum sequence length from the second dimension (dim=1) of the inner tensors.
+        max_length = max(s.size(1) for s in sequences)
+
+        padded_sequences = []
+
+        # 2. Pad each tensor to the maximum length.
+        for seq_tensor in sequences:
+            single_seq = seq_tensor.squeeze(0) 
+            current_length = single_seq.size(0)
+            padding_needed = max_length - current_length
+
+            if padding_needed > 0:
+                # Create a tensor of zeros for padding.
+                # You can use your `self.eos_embedding` if you prefer.
+                padding_tensor = self.eos_embedding.repeat(padding_needed, 1)
+                
+                # Concatenate the original sequence with the padding tensor along dim=0
+                padded_seq = torch.cat([single_seq, padding_tensor], dim=0)
+            else:
+                padded_seq = single_seq
+
+            padded_sequences.append(padded_seq)
+
+        # 3. Stack the padded tensors to create a batch.
+        batch = torch.stack(padded_sequences, dim=0)
+
+        return batch
+    
+    def slice_and_repeat(self, forget_tensor: torch.Tensor, sequence_length: int) -> torch.Tensor:
+        """
+        Adjusts the sequence length of a tensor.
+
+        If the target sequence length is shorter, the tensor is sliced.
+        If it's longer, the last value (assumed to be an EOS token) is repeated.
+
+        Args:
+            forget_tensor (torch.Tensor): The input tensor, with shape (batch_size, current_seq_len).
+            sequence_length (int): The target sequence length.
+
+        Returns:
+            torch.Tensor: The modified tensor with the new sequence length.
+        """
+        current_seq_len = forget_tensor.shape[1]
+
+        if current_seq_len > sequence_length:
+            # If current sequence is too long, slice it to the desired length
+            return forget_tensor[:, :sequence_length]
+        elif current_seq_len < sequence_length:
+            # If current sequence is too short, repeat the last value
+            last_value = forget_tensor[:, -1:]
+            padding_tensor = last_value.repeat(1, sequence_length - current_seq_len)
+            return torch.cat([forget_tensor, padding_tensor], dim=1)
+        else:
+            # If lengths are already equal, return the tensor as is
+            return forget_tensor
+
+    def _optimize_anti_pattern_for_batch(self, model, forget_inputs_original) -> List[torch.Tensor]:
         """
         Optimizes a *new* AntiPattern for each sample in the current batch of forget_inputs.
         Each anti-pattern is trained independently.
@@ -102,16 +200,43 @@ class NOVA(UnlearnTrainer):
         original_training_state = model.training
         model.eval() # Freeze the main model's parameters
 
-        batch_size, seq_len = forget_inputs_original["input_ids"].shape
-        embedding_dim = model.config.hidden_size
+        batch_size, _ = forget_inputs_original["input_ids"].shape
+        if not hasattr(self, 'embedding_dim'):
+            self.embedding_dim = model.config.hidden_size
+            logger.info(f"Embedding dimension: {self.embedding_dim}")
+
+        # Get the embedding of the end-of-sequence (EOS) token
+        # This code will execute only on the first call to compute_loss()
+        if not hasattr(self, 'eos_embedding'):
+            # Access the model's embedding layer.
+            # Assuming the model has a `get_input_embeddings()` method.
+            embedding_layer = model.get_input_embeddings()
+            
+            # Get the ID of the EOS token from the tokenizer config.
+            # Assuming the tokenizer is accessible via model.config.
+            self.eos_token_id = model.config.eos_token_id
+            
+            # Ensure the EOS token ID is valid.
+            if self.eos_token_id is not None:
+                self.eos_token_id = self.eos_token_id[-1:]
+                # Use torch.no_grad() to avoid tracking gradients for this operation.
+                with torch.no_grad():
+                    # Get the embedding for the EOS token ID.
+                    # The embedding layer is a lookup table, so we pass the token ID as a tensor.
+                    self.eos_embedding = embedding_layer(torch.tensor(self.eos_token_id).to(model.device))
+                    logger.info(f"EOS token embedding shape: {self.eos_embedding.shape}")
+            else:
+                logger.warning("EOS token ID not found in model config.")
+
         all_optimized_perturbations = []
 
         # Iterate through each sample in the batch
         for i in range(batch_size):
             # Extract a single sample and its corresponding data
-            single_forget_input = {
+            single_forget_input = self.reduce_eos_tokens({
                 key: value[i:i+1] for key, value in forget_inputs_original.items()
-            }
+            })
+
             single_attention_mask = single_forget_input["attention_mask"].to(model.device)
             # Here we check, whether the anti-pattern has been created for this sample already.
             if data.nova_speedup.exists(
@@ -131,17 +256,20 @@ class NOVA(UnlearnTrainer):
                         reg_term=self.regularization_term,
                         soft_target=self.soft_target,
                         sample=torch.squeeze(single_forget_input["input_ids"], 0),
-                    )
+                        to=model.device,
+                    ).to(model.device)
                 )
+
             else:
+                _, seq_len = single_forget_input["input_ids"].shape
                 # Create a new AntiPattern instance and optimizer for the single sample
                 anti_pattern_instance = AntiPattern(
                     batch_size=1,
                     seq_len=seq_len,
-                    embedding_dim=embedding_dim,
-                    attention_mask=single_attention_mask
+                    embedding_dim=self.embedding_dim,
+                    # attention_mask=single_attention_mask,
                 ).to(model.device)
-                optimizer_for_this_sample = torch.optim.Adam(anti_pattern_instance.parameters(), lr=self.noise_lr)
+                optimizer_for_this_sample = torch.optim.Adam(anti_pattern_instance.parameters(), lr=self.noise_lr) # type: ignore
 
                 # Prepare the target for anti-pattern optimization
                 if self.soft_target:
@@ -159,8 +287,8 @@ class NOVA(UnlearnTrainer):
 
                         model_outputs = model(
                             inputs_embeds=perturbation,
-                            attention_mask=single_attention_mask,
-                            labels=ap_labels_for_model_call
+                            # attention_mask=single_attention_mask,
+                            labels=ap_labels_for_model_call,
                         )
 
                         if self.soft_target:
@@ -188,15 +316,16 @@ class NOVA(UnlearnTrainer):
                     noise_lr=self.noise_lr,
                     reg_term=self.regularization_term,
                     soft_target=self.soft_target,
-                    key=torch.squeeze(single_forget_input["input_ids"], 0),
-                    value=anti_pattern_instance.pattern.detach(),
+                    sample=torch.squeeze(single_forget_input["input_ids"], 0),
+                    anti_pattern=anti_pattern_instance.pattern.detach(),
+                    sample_embedding=torch.squeeze(model.get_input_embeddings()(torch.tensor(single_forget_input["input_ids"]).to(model.device)), 0),
                 )
 
                 all_optimized_perturbations.append(anti_pattern_instance.pattern.detach())
                 logger.info(f"Sample {i+1}/{batch_size} Anti-pattern Training done; Final Loss: {anti_pattern_loss.item():.4f}")
-
+            
         model.train(original_training_state)
-        return torch.cat(all_optimized_perturbations, dim=0)
+        return all_optimized_perturbations
 
     def compute_intermediate_loss(self, model: nn.Module, inputs: dict, uses_embeds: bool = False, soft_targets_for_loss: torch.Tensor | None = None):
         """
@@ -254,14 +383,15 @@ class NOVA(UnlearnTrainer):
         forget_inputs = inputs["forget"]
         retain_inputs = inputs["retain"]
 
-        if self.model_name is None:
+        if not hasattr(self, 'model_name'):
             self.model_name = model.config._name_or_path
 
         # --- Phase 1: Optimize a batch-specific AntiPattern and get its output ---
         # For anti-pattern optimization, use the original hard labels.
         # This makes the anti-pattern aim to maximize the model's *original* loss.
-        optimized_perturbation_for_batch = self._optimize_anti_pattern_for_batch(model, forget_inputs)
+        optimized_perturbation_list = self._optimize_anti_pattern_for_batch(model, forget_inputs)
 
+        optimized_perturbation_for_batch = self.custom_padding_function(optimized_perturbation_list)
         # --- Phase 2: Main Model Unlearning Step using the optimized perturbation from Phase 1 ---
         # Get soft targets if enabled for the *main unlearning phase* (impairment of forget data)
         soft_targets_for_impairment = None
@@ -273,6 +403,9 @@ class NOVA(UnlearnTrainer):
 
         # The optimized_perturbation_for_batch now directly acts as the noisy input embeddings.
         final_antipattern_embeddings = optimized_perturbation_for_batch
+        sequence_length = final_antipattern_embeddings.shape[1]
+        forget_inputs["attention_mask"] = self.slice_and_repeat(forget_inputs["attention_mask"], sequence_length)
+        forget_inputs["labels"] = self.slice_and_repeat(forget_inputs["labels"], sequence_length)
 
         # --- LOGGING THE ANTI-PATTERN HERE ---
         if logger.isEnabledFor(logging.INFO) and final_antipattern_embeddings is not None:

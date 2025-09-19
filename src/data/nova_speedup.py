@@ -1,49 +1,101 @@
 import os
-from torch import Tensor, load, save
+os.environ["CHROMA_TELEMETRY_IS_DISABLED"] = "1"
 
-ROOT_DIR = "saves/nova_speedup"
+from torch import Tensor, save, load
+from torch import (
+    float16, float32, float64, int8, int16, int32, int64
+)
+from transformers import AutoTokenizer
+from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
+import chromadb
+import uuid
+from typing import Dict, Any
 
-def get_relative_paths():
+# Initialize the ChromaDB client
+ROOT_DIR = "saves/chromadb"
+client = chromadb.PersistentClient(path=ROOT_DIR)
+
+HF_TOKEN = "" # Your Token
+TOKENIZER_MAPPING = {
+    "Llama-3.1-8B-Instruct": "meta-llama/Llama-3.1-8B-Instruct",
+    "Llama-3.2-3B-Instruct": "meta-llama/Llama-3.2-3B-Instruct",
+    "Llama-3.2-1B-Instruct": "meta-llama/Llama-3.2-1B-Instruct",
+}
+# Define a constant for the collection name
+COLLECTION_NAME = "nova_speedup_collection"
+
+def get_collection() -> chromadb.Collection:
     """
-    Returns a set of relative paths for all files in a given directory and its subdirectories.
+    Retrieves or creates the ChromaDB collection.
     """
-    if not os.path.exists(ROOT_DIR):
-        return set()
-    relative_paths = set()
-    for dirpath, dirnames, filenames in os.walk(ROOT_DIR):
-        for filename in filenames:
-            absolute_path = os.path.join(dirpath, filename)
-            relative_path = os.path.relpath(absolute_path, ROOT_DIR)
-            relative_paths.add(relative_path)
-    return relative_paths
+    embedding_fct = DefaultEmbeddingFunction()
 
-def get_query( 
-    base_model: str,
-    noise_epochs: int,
-    noise_lr: float,
-    reg_term: float,
-    soft_target: bool,
-) -> str:
-    config_list = [base_model, noise_epochs, noise_lr, reg_term, soft_target]
-    config_list = [str(var).replace(".", "_") for var in config_list]
-    config_list = os.path.join(*config_list)
-    return config_list + ".pkl"
+    return client.get_or_create_collection(
+        name=COLLECTION_NAME,
+        embedding_function=embedding_fct,  # type: ignore
+    )
 
-def create_directory(
-    base_model: str,
-    noise_epochs: int,
-    noise_lr: float,
-    reg_term: float,
-    soft_target: bool,
+def get_tokenizer(
+        base_model: str,
 ):
-    query = get_query(base_model=base_model, noise_epochs=noise_epochs, noise_lr=noise_lr, reg_term=reg_term, soft_target=soft_target,)
-    relative_path = query.rsplit(os.sep, maxsplit=1)[0]
-    full_path = os.path.join(ROOT_DIR, relative_path)
-    if not os.path.exists(full_path):
-        os.makedirs(full_path)
-        print(f"✅ Created directory: {full_path}")
-    else:
-        print(f"ℹ️ Directory already exists: {full_path}")
+    """
+    Create the Tokenizer for the parse model
+    """
+    model_path = None
+    for name, path in TOKENIZER_MAPPING.items():
+        if name in base_model:
+            model_path = path
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_path,
+        token=HF_TOKEN
+    )
+    # [meta-llama/Llama-3.1-8B-Instruct, meta-llama/Llama-3.2-3B-Instruct, meta-llama/Llama-3.2-1B-Instruct]
+    if tokenizer.pad_token is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token_id = tokenizer.eos_token_id 
+
+    return tokenizer
+
+def get_metadata(
+    base_model: str,
+    noise_epochs: int,
+    noise_lr: float,
+    reg_term: float,
+    soft_target: bool,
+    sample_key_str: str,
+    #anti_pattern_str: str = "",
+    anti_pattern_dtype_str: str = "",
+    #sample_embedding_str: str = "",
+    as_filter: bool = False,
+) -> Dict[str, Any]:
+    """
+    Creates a metadata dictionary from the input parameters.
+    """
+    if as_filter:
+        return {
+            "$and": [
+                {"base_model": {"$eq": base_model}},
+                {"noise_epochs": {"$eq": noise_epochs}},
+                {"noise_lr": {"$eq": noise_lr}},
+                {"reg_term": {"$eq": reg_term}},
+                {"soft_target": {"$eq": soft_target}},
+                {"sample_key_str": {"$eq": sample_key_str}},
+            ]
+        }
+    if anti_pattern_dtype_str == "": #anti_pattern_str == "" and 
+        raise Exception("No values parsed for: 'tensor_value', 'tensor_dtype'!")
+    return {
+        "base_model": base_model,
+        "noise_epochs": noise_epochs,
+        "noise_lr": noise_lr,
+        "reg_term": reg_term,
+        "soft_target": soft_target,
+        "sample_key_str": sample_key_str,
+        #"anti_pattern_str": anti_pattern_str,
+        "anti_pattern_dtype_str": anti_pattern_dtype_str,
+        #"sample_embedding_str": sample_embedding_str
+    }
 
 def put(
     base_model: str,
@@ -51,19 +103,48 @@ def put(
     noise_lr: float,
     reg_term: float,
     soft_target: bool,
-    key: Tensor,
-    value: Tensor,
+    sample: Tensor,
+    anti_pattern: Tensor,
+    sample_embedding: Tensor,
 ):
-    create_directory(
-        base_model=base_model, noise_epochs=noise_epochs, noise_lr=noise_lr, reg_term=reg_term, soft_target=soft_target,
+    """
+    Adds a key-value pair to the ChromaDB collection.
+    """
+    collection = get_collection()
+    tokenizer = get_tokenizer(base_model=base_model)
+    
+    # Store the tensor value as a list and its datatype as a string in the metadata
+    metadata = get_metadata(
+        base_model,
+        noise_epochs,
+        noise_lr,
+        reg_term,
+        soft_target,
+        str(sample.tolist()),
+        #str(anti_pattern.tolist()),
+        str(anti_pattern.dtype),
+        #str(sample_embedding.tolist()),
     )
-    query = os.path.join(ROOT_DIR, get_query(base_model=base_model, noise_epochs=noise_epochs, noise_lr=noise_lr, reg_term=reg_term, soft_target=soft_target, ))
-    dictionary = load(query) if os.path.exists(query) else {}
+    
+    # ChromaDB expects lists of values
+    embedding_list = None
+    documents = [tokenizer.decode(sample.tolist(), skip_special_tokens=True)]
+    metadatas = [metadata]
+    ids = str(uuid.uuid4())
 
-    hashable_tensor = tuple(key.tolist())
-    dictionary[hashable_tensor] = value
-    save(dictionary, query)
-    print(f"✅ Saved tensor mapping to: {query}")
+    collection.add(
+        embeddings=embedding_list,
+        documents=documents,
+        metadatas=metadatas,  # type: ignore
+        ids=ids,
+    )
+
+    os.makedirs(os.path.join(ROOT_DIR, "anti"), exist_ok=True)
+    save(anti_pattern, os.path.join(ROOT_DIR, "anti", f"{ids}.pt"))
+    os.makedirs(os.path.join(ROOT_DIR, "prior_embedding"), exist_ok=True)
+    save(sample_embedding, os.path.join(ROOT_DIR, "prior_embedding", f"{ids}.pt"))
+
+    print(f"✅ Saved tensor mapping to ChromaDB collection: {COLLECTION_NAME}")
 
 def get(
     base_model: str,
@@ -72,15 +153,52 @@ def get(
     reg_term: float,
     soft_target: bool,
     sample: Tensor,
+    to: str,
 ) -> Tensor:
-    query = os.path.join(ROOT_DIR, get_query(base_model=base_model, noise_epochs=noise_epochs, noise_lr=noise_lr, reg_term=reg_term, soft_target=soft_target, ))
-    dictionary = load(query)
-    try:
-        hashable_tensor = tuple(sample.tolist())
-        mapping = dictionary[hashable_tensor]
-    except KeyError:
+    """
+    Retrieves the value associated with a sample vector from ChromaDB.
+    """
+    collection = get_collection()
+
+    # Define the filter for metadata, excluding the tensor value and dtype
+    metadata_filter = get_metadata(
+        base_model=base_model,
+        noise_epochs=noise_epochs,
+        noise_lr=noise_lr,
+        reg_term=reg_term,
+        soft_target=soft_target,
+        sample_key_str=str(sample.tolist()),
+        as_filter=True,
+    )
+
+    results = collection.get(
+        where=metadata_filter
+    )
+    
+    if results['metadatas'] and results['metadatas'][0]:
+        # Retrieve the list and datatype from metadata and convert back to a tensor
+        # anti_pattern_str = results['metadatas'][0].get('anti_pattern_str')
+        anti_patter_tensor = load(os.path.join(ROOT_DIR, "anti", f"{results['ids'][0]}.pt"), map_location=to, weights_only=True)
+        anti_pattern_dtype_str = results['metadatas'][0].get('anti_pattern_dtype_str')
+        
+        # Use a mapping to get the correct torch.dtype from the string
+        # This is a robust way to handle the conversion
+        dtype_map = {
+            'torch.float16': float16,
+            'torch.float32': float32,
+            'torch.float64': float64,
+            'torch.int8':  int8,
+            'torch.int16': int16,
+            'torch.int32': int32,
+            'torch.int64': int64,
+        }
+        
+        dtype = dtype_map.get(anti_pattern_dtype_str, None)  # type: ignore
+        if dtype is None:
+            raise ValueError(f"Unknown tensor dtype: {anti_pattern_dtype_str}")
+        return anti_patter_tensor
+    else:
         raise KeyError("The sample you are looking for does not exist")
-    return mapping
 
 def exists(
     base_model: str,
@@ -90,12 +208,63 @@ def exists(
     soft_target: bool,
     sample: Tensor,
 ) -> bool:
-    query = get_query(base_model=base_model, noise_epochs=noise_epochs, noise_lr=noise_lr, reg_term=reg_term, soft_target=soft_target,)
-    rel_path_set = get_relative_paths()
-    if query in rel_path_set:
-        full_query_path = os.path.join(ROOT_DIR, query)
-        loaded_dict = load(full_query_path)
-        hashable_tensor = tuple(sample.tolist())
-        if hashable_tensor in loaded_dict:
-            return True
-    return False
+    """
+    Checks if a sample vector and its associated metadata exist in ChromaDB.
+    """
+    collection = get_collection()
+
+    metadata_filter = get_metadata(
+        base_model=base_model,
+        noise_epochs=noise_epochs,
+        noise_lr=noise_lr,
+        reg_term=reg_term,
+        soft_target=soft_target,
+        sample_key_str=str(sample.tolist()),
+        as_filter=True,
+    )
+    
+    results = collection.get(
+        where=metadata_filter
+    )
+    
+    return bool(results['ids'])
+
+def delete(
+    base_model: str,
+    noise_epochs: int,
+    noise_lr: float,
+    reg_term: float,
+    soft_target: bool,
+    sample: Tensor,
+) -> bool:
+    """
+    Deletes a document from the ChromaDB collection based on a sample vector and its metadata.
+    """
+    collection = get_collection()
+    
+    metadata_filter = get_metadata(
+        base_model=base_model,
+        noise_epochs=noise_epochs,
+        noise_lr=noise_lr,
+        reg_term=reg_term,
+        soft_target=soft_target,
+        sample_key_str=str(sample.tolist()),
+        as_filter=True,
+    )
+
+    try:
+        results = collection.get(
+            where=metadata_filter
+        )
+
+        collection.delete(
+            ids=[results['ids'][0]]
+        )
+        os.remove(os.path.join(ROOT_DIR, "anti", f"{results['ids'][0]}.pt"))
+        os.remove(os.path.join(ROOT_DIR, "prior_embedding", f"{results['ids'][0]}.pt"))
+
+        print("✅ Successfully deleted document.")
+        return True
+    except Exception as e:
+        print(f"❌ Failed to delete document: {e}")
+        return False
