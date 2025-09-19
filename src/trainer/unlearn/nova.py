@@ -4,7 +4,9 @@ from torch import nn
 import logging
 from trainer.unlearn.base import UnlearnTrainer
 from torch.nn import functional as F
-from transformers import AutoTokenizer
+from typing import List, Dict
+
+import data.nova_speedup
 
 # NOVA (Noise-Optimized Vector for Annulling)
 # 
@@ -14,9 +16,6 @@ from transformers import AutoTokenizer
 # https://github.com/MoraiT01/study_on_unlearning # Here the algorithms, which follow these same principles, are refered to as GeFeU, FEMU and FEMU+
 
 logger = logging.getLogger(__name__)
-
-# Note:
-# - I am assuming that the "inputs" (consiting of "input_ids", "attention_mask", "labels") are in the form of a batch and not a single sample.
 
 class AntiPattern(nn.Module):
     def __init__(self, batch_size: int, seq_len: int, embedding_dim: int, attention_mask: torch.Tensor = None): # type: ignore
@@ -35,7 +34,7 @@ class AntiPattern(nn.Module):
         return self.pattern
 
 class NOVA(UnlearnTrainer):
-    def __init__(self,                 
+    def __init__(self, 
                  noise_epochs: int = 10, 
                  noise_lr: float = 0.0001,
                  regularization_term: float = 0.0001,
@@ -54,24 +53,6 @@ class NOVA(UnlearnTrainer):
         logger.info(f"NOVA initialized with: n_epochs {self.noise_epochs}| n_lr {self.noise_lr}| reg_term {self.regularization_term}| alpha {self.alpha}| sign {self.sign}| soft {self.soft_target}")
         # Initialize KLDivLoss for soft targets
         self.kl_loss_fct = nn.KLDivLoss(reduction='batchmean') # Use 'batchmean' or 'sum' as appropriate
-
-        self.tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-3B-Instruct")
-        # [meta-llama/Meta-Llama-3.1-8B-Instruct, meta-llama/Llama-3.2-3B-Instruct, meta-llama/Llama-3.2-1B-Instruct]
-        # TODO: Sadly, it is hardcoded for now
-
-        if self.tokenizer.pad_token is None:
-            # Option 1: Use EOS as pad token (common for Llama-like models)
-            self.tokenizer.pad_token = self.tokenizer.eos_token
-
-        # If pad_token_id is still None after setting pad_token (e.g., if eos_token_id was also None),
-        # or if you just want to ensure it's an int.
-        if self.tokenizer.pad_token_id is None:
-            self.tokenizer.pad_token_id = self.tokenizer.eos_token_id # Or another appropriate ID
-            # As a last resort, if EOS is also None and no other suitable special token:
-            # tokenizer.pad_token_id = 0 # Be cautious, ensure 0 is not a frequently used token ID
-
-        padding_value = float(self.tokenizer.pad_token_id)
-        logger.debug(f"Padding value: {padding_value}")
 
     def get_soft_target(self, model: nn.Module, forget_inputs: dict) -> torch.Tensor:
         """
@@ -103,88 +84,248 @@ class NOVA(UnlearnTrainer):
         # We need the logits to compute KL Divergence later.
         # outputs.logits will have shape (batch_size, sequence_length, vocab_size)
         return outputs.logits
-
-    def _optimize_anti_pattern_for_batch(self, model, forget_inputs_original):
+    
+    def reduce_eos_tokens(self, sample: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """
-        Optimizes a *new* AntiPattern instance for the current batch of forget_inputs.
-        This phase aims to maximize the model's loss on the forget set when perturbed by this batch-specific anti-pattern.
-        The model is temporarily set to eval mode during this optimization.
+        Removes trailing duplicate values from a 1D PyTorch Tensor.
+
+        Args:
+            Dict[str, torch.Tensor]: ['input_ids', 'labels', 'attention_mask']
+
+        Returns:
+            torch.Tensor: A new tensor with trailing duplicates removed.
+        """
+        if sample["input_ids"].dim() != 2 or sample["input_ids"].numel() == 0:
+            print("Sample is not a 2D tensor")
+            return sample
+
+        last_value = self.eos_token_id[0] # We need to Integer not the Tensor; assuming that it a 1D Tensor
+        reversed_input = torch.flip(sample["input_ids"].squeeze(0), dims=[0])
+        diff_indices = torch.nonzero(reversed_input != last_value)
+        
+        if diff_indices.numel() == 0:
+            # All elements are the last_value
+            cutter = len(sample["input_ids"][0])
+        else:
+            # The length of the tail is the index of the first different value
+            cutter = diff_indices[0][0].item()
+
+        if cutter <= 1:
+            return sample
+
+        return {key: value[:, :-(cutter - 1)] for key, value in sample.items()}
+        
+    def custom_padding_function(self, sequences: list[torch.Tensor]) -> torch.Tensor:
+        """
+        Pads a list of 2D tensors with a specific EOS embedding vector stored in self.eos_embedding.
+
+        Args:
+            sequences (list[torch.Tensor]): A list of tensors, each of shape (sequence_length, embedding_dim).
+
+        Returns:
+            torch.Tensor: A single batched tensor of shape (batch_size, max_seq_length, embedding_dim).
+        """
+        if not sequences:
+            return torch.tensor([])
+
+        # 1. Find the maximum sequence length from the second dimension (dim=1) of the inner tensors.
+        max_length = max(s.size(1) for s in sequences)
+
+        padded_sequences = []
+
+        # 2. Pad each tensor to the maximum length.
+        for seq_tensor in sequences:
+            single_seq = seq_tensor.squeeze(0) 
+            current_length = single_seq.size(0)
+            padding_needed = max_length - current_length
+
+            if padding_needed > 0:
+                # Create a tensor of zeros for padding.
+                # You can use your `self.eos_embedding` if you prefer.
+                padding_tensor = self.eos_embedding.repeat(padding_needed, 1)
+                
+                # Concatenate the original sequence with the padding tensor along dim=0
+                padded_seq = torch.cat([single_seq, padding_tensor], dim=0)
+            else:
+                padded_seq = single_seq
+
+            padded_sequences.append(padded_seq)
+
+        # 3. Stack the padded tensors to create a batch.
+        batch = torch.stack(padded_sequences, dim=0)
+
+        return batch
+    
+    def slice_and_repeat(self, forget_tensor: torch.Tensor, sequence_length: int) -> torch.Tensor:
+        """
+        Adjusts the sequence length of a tensor.
+
+        If the target sequence length is shorter, the tensor is sliced.
+        If it's longer, the last value (assumed to be an EOS token) is repeated.
+
+        Args:
+            forget_tensor (torch.Tensor): The input tensor, with shape (batch_size, current_seq_len).
+            sequence_length (int): The target sequence length.
+
+        Returns:
+            torch.Tensor: The modified tensor with the new sequence length.
+        """
+        current_seq_len = forget_tensor.shape[1]
+
+        if current_seq_len > sequence_length:
+            # If current sequence is too long, slice it to the desired length
+            return forget_tensor[:, :sequence_length]
+        elif current_seq_len < sequence_length:
+            # If current sequence is too short, repeat the last value
+            last_value = forget_tensor[:, -1:]
+            padding_tensor = last_value.repeat(1, sequence_length - current_seq_len)
+            return torch.cat([forget_tensor, padding_tensor], dim=1)
+        else:
+            # If lengths are already equal, return the tensor as is
+            return forget_tensor
+
+    def _optimize_anti_pattern_for_batch(self, model, forget_inputs_original) -> List[torch.Tensor]:
+        """
+        Optimizes a *new* AntiPattern for each sample in the current batch of forget_inputs.
+        Each anti-pattern is trained independently.
 
         Args:
             model (nn.Module): The language model.
             forget_inputs_original (dict): The original forget inputs (with hard labels).
 
         Returns:
-            torch.Tensor: The optimized perturbation tensor for the current batch, detached from the graph.
+            torch.Tensor: The optimized perturbation tensor for the entire batch, with each sample's
+                          perturbation trained independently, and then stacked together.
         """
         original_training_state = model.training
-        model.eval() # Ensure the main model's parameters are frozen during anti-pattern optimization
+        model.eval() # Freeze the main model's parameters
 
-        batch_size, seq_len = forget_inputs_original["input_ids"].shape
-        embedding_dim = model.config.hidden_size 
+        batch_size, _ = forget_inputs_original["input_ids"].shape
+        if not hasattr(self, 'embedding_dim'):
+            self.embedding_dim = model.config.hidden_size
+            logger.info(f"Embedding dimension: {self.embedding_dim}")
 
-        anti_pattern_instance = AntiPattern(
-            batch_size=batch_size,
-            seq_len=seq_len,
-            embedding_dim=embedding_dim,
-            attention_mask=forget_inputs_original["attention_mask"].to(model.device) 
-        ).to(model.device) 
+        # Get the embedding of the end-of-sequence (EOS) token
+        # This code will execute only on the first call to compute_loss()
+        if not hasattr(self, 'eos_embedding'):
+            # Access the model's embedding layer.
+            # Assuming the model has a `get_input_embeddings()` method.
+            embedding_layer = model.get_input_embeddings()
+            
+            # Get the ID of the EOS token from the tokenizer config.
+            # Assuming the tokenizer is accessible via model.config.
+            self.eos_token_id = model.config.eos_token_id
+            
+            # Ensure the EOS token ID is valid.
+            if self.eos_token_id is not None:
+                self.eos_token_id = self.eos_token_id[-1:]
+                # Use torch.no_grad() to avoid tracking gradients for this operation.
+                with torch.no_grad():
+                    # Get the embedding for the EOS token ID.
+                    # The embedding layer is a lookup table, so we pass the token ID as a tensor.
+                    self.eos_embedding = embedding_layer(torch.tensor(self.eos_token_id).to(model.device))
+                    logger.info(f"EOS token embedding shape: {self.eos_embedding.shape}")
+            else:
+                logger.warning("EOS token ID not found in model config.")
 
-        optimizer_for_this_batch = torch.optim.Adam(anti_pattern_instance.parameters(), lr=self.noise_lr) # type: ignore
+        all_optimized_perturbations = []
 
-        # Prepare the target for anti-pattern optimization based on self.soft_target
-        # This will be either hard labels or detached soft targets (logits)
-        if self.soft_target:
-            # If soft_target is True, generate and use soft targets (logits)
-            # IMPORTANT: Generate soft targets *before* the anti-pattern optimization loop.
-            # These are the targets the anti-pattern will try to maximize divergence from.
-            # Ensure model.eval() and no_grad() in get_soft_target for consistency.
-            # This will return logits of shape (batch_size, seq_len, vocab_size)
-            ap_target = self.get_soft_target(model, forget_inputs_original).detach()
-            # The original labels are not needed directly here if using soft targets
-            # and computing KL loss manually.
-            ap_labels_for_model_call = None # Will be passed as labels=None to model
-        else:
-            # If soft_target is False, use the original hard labels
-            ap_target = forget_inputs_original["labels"].to(model.device)
-            ap_labels_for_model_call = ap_target # Will be passed as labels=ap_target to model
+        # Iterate through each sample in the batch
+        for i in range(batch_size):
+            # Extract a single sample and its corresponding data
+            single_forget_input = self.reduce_eos_tokens({
+                key: value[i:i+1] for key, value in forget_inputs_original.items()
+            })
 
-        with torch.enable_grad(): 
-            for epoch_idx in range(self.noise_epochs): 
-                optimizer_for_this_batch.zero_grad()
-
-                perturbation = anti_pattern_instance() 
-                
-                # Forward pass through the model
-                model_outputs = model(
-                    inputs_embeds=perturbation, 
-                    attention_mask=forget_inputs_original["attention_mask"],
-                    labels=ap_labels_for_model_call # Pass None for soft_target, hard labels otherwise
+            single_attention_mask = single_forget_input["attention_mask"].to(model.device)
+            # Here we check, whether the anti-pattern has been created for this sample already.
+            if data.nova_speedup.exists(
+                    base_model=self.model_name,
+                    noise_epochs=self.noise_epochs,
+                    noise_lr=self.noise_lr,
+                    reg_term=self.regularization_term,
+                    soft_target=self.soft_target,
+                    sample=torch.squeeze(single_forget_input["input_ids"], 0),
+                ):
+                logger.info(f"Matching Prior Processed Anti-pattern found!")
+                all_optimized_perturbations.append(
+                    data.nova_speedup.get(
+                        base_model=self.model_name,
+                        noise_epochs=self.noise_epochs,
+                        noise_lr=self.noise_lr,
+                        reg_term=self.regularization_term,
+                        soft_target=self.soft_target,
+                        sample=torch.squeeze(single_forget_input["input_ids"], 0),
+                        to=model.device,
+                    ).to(model.device)
                 )
 
+            else:
+                _, seq_len = single_forget_input["input_ids"].shape
+                # Create a new AntiPattern instance and optimizer for the single sample
+                anti_pattern_instance = AntiPattern(
+                    batch_size=1,
+                    seq_len=seq_len,
+                    embedding_dim=self.embedding_dim,
+                    # attention_mask=single_attention_mask,
+                ).to(model.device)
+                optimizer_for_this_sample = torch.optim.Adam(anti_pattern_instance.parameters(), lr=self.noise_lr) # type: ignore
+
+                # Prepare the target for anti-pattern optimization
                 if self.soft_target:
-                    # Calculate KL Divergence to maximize divergence from soft targets
-                    log_softmax_model_outputs = F.log_softmax(model_outputs.logits, dim=-1)
-                    softmax_soft_targets = F.softmax(ap_target, dim=-1) # ap_target holds the soft targets (logits)
-
-                    # Negate KLDivLoss to maximize it during gradient ascent
-                    kl_loss = -self.kl_loss_fct(log_softmax_model_outputs, softmax_soft_targets)
-                    anti_pattern_loss = kl_loss # Start with KL loss
+                    ap_target = self.get_soft_target(model, single_forget_input).detach()
+                    ap_labels_for_model_call = None
                 else:
-                    # Use the model's internal loss (CrossEntropyLoss) with hard labels
-                    anti_pattern_loss = - model_outputs.loss # Negate to maximize
+                    ap_target = single_forget_input["labels"].to(model.device)
+                    ap_labels_for_model_call = ap_target
 
-                # Add regularization term (applies to both cases)
-                anti_pattern_loss += self.regularization_term * torch.mean(torch.square(perturbation.detach()))
+                with torch.enable_grad():
+                    for epoch_idx in range(self.noise_epochs):
+                        optimizer_for_this_sample.zero_grad()
 
-                anti_pattern_loss.backward()
-                optimizer_for_this_batch.step()
-                if (epoch_idx + 1) % max(1, self.noise_epochs // 5) == 0: 
-                    logger.info(f"Anti-pattern Optimization Epoch {epoch_idx+1}/{self.noise_epochs}, Current Loss: {anti_pattern_loss.item():.4f}")
-        
+                        perturbation = anti_pattern_instance()
+
+                        model_outputs = model(
+                            inputs_embeds=perturbation,
+                            # attention_mask=single_attention_mask,
+                            labels=ap_labels_for_model_call,
+                        )
+
+                        if self.soft_target:
+                            log_softmax_model_outputs = F.log_softmax(model_outputs.logits, dim=-1)
+                            softmax_soft_targets = F.softmax(ap_target, dim=-1)
+                            kl_loss = -self.kl_loss_fct(log_softmax_model_outputs, softmax_soft_targets)
+                            anti_pattern_loss = kl_loss
+                        else:
+                            anti_pattern_loss = -model_outputs.loss
+
+                        # Add regularization term
+                        anti_pattern_loss += self.regularization_term * torch.mean(torch.square(perturbation.detach()))
+
+                        anti_pattern_loss.backward()
+                        optimizer_for_this_sample.step()
+
+                        if (epoch_idx + 1) % max(1, self.noise_epochs // 5) == 0:
+                            logger.info(f"Sample {i+1}/{batch_size}, Anti-pattern Epoch {epoch_idx+1}/{self.noise_epochs}, Current Loss: {anti_pattern_loss.item():.4f}")
+                        
+                # Save the optimized perturbation for this sample
+                logger.info(f"Saving created Anti-pattern for later Use")
+                data.nova_speedup.put(
+                    base_model=self.model_name,
+                    noise_epochs=self.noise_epochs,
+                    noise_lr=self.noise_lr,
+                    reg_term=self.regularization_term,
+                    soft_target=self.soft_target,
+                    sample=torch.squeeze(single_forget_input["input_ids"], 0),
+                    anti_pattern=anti_pattern_instance.pattern.detach(),
+                    sample_embedding=torch.squeeze(model.get_input_embeddings()(torch.tensor(single_forget_input["input_ids"]).to(model.device)), 0),
+                )
+
+                all_optimized_perturbations.append(anti_pattern_instance.pattern.detach())
+                logger.info(f"Sample {i+1}/{batch_size} Anti-pattern Training done; Final Loss: {anti_pattern_loss.item():.4f}")
+            
         model.train(original_training_state)
-        logger.info(f"Anti-pattern Training done; Final Loss: {anti_pattern_loss.item():.4f}")
-        return anti_pattern_instance.pattern.detach()
+        return all_optimized_perturbations
 
     def compute_intermediate_loss(self, model: nn.Module, inputs: dict, uses_embeds: bool = False, soft_targets_for_loss: torch.Tensor | None = None):
         """
@@ -196,8 +337,8 @@ class NOVA(UnlearnTrainer):
                            'input_ids' can be raw token IDs or embeddings if uses_embeds is True.
             uses_embeds (bool): If True, 'input_ids' in inputs are treated as embeddings.
             soft_targets_for_loss (torch.Tensor, optional): If provided, computes KL Divergence
-                                                             between model's logits and these soft targets.
-                                                             Otherwise, uses CrossEntropyLoss with hard labels.
+                                                            between model's logits and these soft targets.
+                                                            Otherwise, uses CrossEntropyLoss with hard labels.
         Returns:
             Tuple[torch.Tensor, Any]: The computed loss and the model's outputs.
         """
@@ -216,54 +357,17 @@ class NOVA(UnlearnTrainer):
         loss = 0.0
         if soft_targets_for_loss is not None:
             # If soft targets are provided, compute KL Divergence
-            # Ensure proper log-probabilities for KLDivLoss's first argument
-            # and actual probabilities for the second argument (the target).
-            
-            # The model's logits are outputs.logits
-            # The soft_targets_for_loss are also logits from get_soft_target
-            
-            # Clamp for numerical stability before softmax for target
-            # and log_softmax for input to KLDivLoss
-            
-            # Maximize divergence: -KL(P_model || P_soft_target) (i.e., minimize KL)
-            # Or define a specific goal for unlearning (e.g., push to uniform distribution)
-            
-            # For unlearning, we want the model to output a distribution that is "different"
-            # from the original soft targets. So, minimizing KL divergence is not the goal.
-            # A common approach is to maximize the KL divergence or use a negative log-likelihood
-            # on a uniform distribution.
-            
-            # Let's assume for NOVA, when soft_target is true, you want the forget loss to be
-            # high (i.e., model performs poorly on these inputs, driven by the anti-pattern).
-            # If `soft_targets_for_loss` are the *original* logits, then we want the current model's
-            # logits on the *perturbed* input to be far from these.
-            
-            # Option 1: Maximize KL Divergence from original soft target
-            # This pushes the model away from its original knowledge.
             log_softmax_outputs = F.log_softmax(model_outputs.logits, dim=-1)
             softmax_soft_targets = F.softmax(soft_targets_for_loss, dim=-1)
             
-            # We want to maximize the difference, so we negate the KLDivLoss
-            # KLDivLoss(input_log_probs, target_probs)
-            # We negate it because KLDivLoss normally measures similarity; we want dissimilarity.
             loss = self.kl_loss_fct(log_softmax_outputs, softmax_soft_targets)
-            # TODO: Is it better to maximize the loss here (using the - sign) or would it be better to minimize it?
-            
-            # Note: For some unlearning methods, the soft target itself might be a uniform distribution
-            # to make the model output "random" predictions for the forget set.
-            # In that case, `soft_targets_for_loss` would be `torch.full_like(model_outputs.logits, 1/vocab_size)`.
 
         else:
             # Use the model's internal loss calculation (CrossEntropyLoss for CausalLM)
-            # This requires 'labels' to be passed directly to the model call.
-            # So, for this path, `inputs` should still contain `labels` with hard indices.
             if "labels" not in inputs:
                 raise ValueError("Labels must be provided for hard target loss computation.")
             
             # Re-call the model with labels to get its internal loss
-            # This is slightly inefficient if model_outputs was already computed without labels,
-            # but safer to ensure the model's loss function is correctly used.
-            # Alternatively, you could extract logits and compute CrossEntropyLoss manually.
             model_outputs_with_labels = model(
                 input_ids=inputs["input_ids"] if not uses_embeds else None,
                 inputs_embeds=inputs["input_ids"] if uses_embeds else None, # Pass embeddings if flag is set
@@ -279,11 +383,15 @@ class NOVA(UnlearnTrainer):
         forget_inputs = inputs["forget"]
         retain_inputs = inputs["retain"]
 
+        if not hasattr(self, 'model_name'):
+            self.model_name = model.config._name_or_path
+
         # --- Phase 1: Optimize a batch-specific AntiPattern and get its output ---
         # For anti-pattern optimization, use the original hard labels.
         # This makes the anti-pattern aim to maximize the model's *original* loss.
-        optimized_perturbation_for_batch = self._optimize_anti_pattern_for_batch(model, forget_inputs)
+        optimized_perturbation_list = self._optimize_anti_pattern_for_batch(model, forget_inputs)
 
+        optimized_perturbation_for_batch = self.custom_padding_function(optimized_perturbation_list)
         # --- Phase 2: Main Model Unlearning Step using the optimized perturbation from Phase 1 ---
         # Get soft targets if enabled for the *main unlearning phase* (impairment of forget data)
         soft_targets_for_impairment = None
@@ -295,6 +403,9 @@ class NOVA(UnlearnTrainer):
 
         # The optimized_perturbation_for_batch now directly acts as the noisy input embeddings.
         final_antipattern_embeddings = optimized_perturbation_for_batch
+        sequence_length = final_antipattern_embeddings.shape[1]
+        forget_inputs["attention_mask"] = self.slice_and_repeat(forget_inputs["attention_mask"], sequence_length)
+        forget_inputs["labels"] = self.slice_and_repeat(forget_inputs["labels"], sequence_length)
 
         # --- LOGGING THE ANTI-PATTERN HERE ---
         if logger.isEnabledFor(logging.INFO) and final_antipattern_embeddings is not None:
@@ -302,51 +413,8 @@ class NOVA(UnlearnTrainer):
             sample_idx = 0 
             if final_antipattern_embeddings.shape[0] > sample_idx:
                 anti_pattern_sample = final_antipattern_embeddings[sample_idx] # Shape: (seq_len, embedding_dim)
-
-                # Log basic statistics of the anti-pattern
-                logger.info(f"\n--- ANTI-PATTERN FORGET SAMPLE {sample_idx} ---")
-                logger.info(f"Anti-Pattern Shape: {anti_pattern_sample.shape}")
-                # logger.info(f"Anti-Pattern L2 Norm (per sequence): {torch.norm(anti_pattern_sample).item():.4f}")
-                # logger.info(f"Anti-Pattern Mean (overall): {torch.mean(anti_pattern_sample).item():.4f}")
-                # logger.info(f"Anti-Pattern Std Dev (overall): {torch.std(anti_pattern_sample).item():.4f}")
                 
-                # --- Optional: "Closest Token" interpretation (requires tokenizer and model's embedding layer) ---
-                # This is for qualitative interpretation and can be computationally expensive if done often.
-                # Only include if you have access to model.get_input_embeddings() and self.tokenizer.
-                if self.tokenizer is not None and hasattr(model, 'get_input_embeddings'):
-                    try:
-                        embedding_layer = model.get_input_embeddings()
-                        if embedding_layer is not None:
-                            # Get the full embedding matrix
-                            embedding_matrix = embedding_layer.weight.data 
-                            
-                            # Flatten the anti-pattern sample to (seq_len * embedding_dim) if needed, or process token by token
-                            # Let's process token by token for a more sensible "closest token"
-                            closest_tokens_per_position = []
-                            for i in range(anti_pattern_sample.shape[0]): # Iterate through sequence length
-                                # Current anti-pattern vector for this position
-                                current_vec = anti_pattern_sample[i] # Shape: (embedding_dim,)
-
-                                # Calculate cosine similarity or Euclidean distance to all token embeddings
-                                # Cosine similarity: (A . B) / (||A|| * ||B||)
-                                # Make sure current_vec is not zero vector for cosine similarity
-                                if torch.norm(current_vec) > 1e-6:
-                                    similarities = F.cosine_similarity(current_vec.unsqueeze(0), embedding_matrix, dim=-1)
-                                    closest_token_id = torch.argmax(similarities).item()
-                                    closest_token_score = similarities[closest_token_id].item() # type: ignore
-                                    closest_tokens_per_position.append(
-                                        f"'{self.tokenizer.decode([closest_token_id])}' (score: {closest_token_score:.2f})"
-                                    )
-                                else:
-                                    closest_tokens_per_position.append("[Zero Vector]")
-                            
-                            logger.info(f"Anti-Pattern Closest Tokens (per position): {', '.join(closest_tokens_per_position)}")
-                        else:
-                            logger.warning("Model does not have an input embedding layer or it's None for 'closest token' logging.")
-                    except Exception as e:
-                        logger.warning(f"Error during 'closest token' logging: {e}")
-                else:
-                    logger.info("Skipping 'Closest Token' logging (tokenizer or embedding layer not available).")
+                logger.info(f"Anti-Pattern Shape: {anti_pattern_sample.shape}")
             else:
                 logger.warning(f"Anti-pattern tensor does not contain sample {sample_idx}.")
         # --- END LOGGING THE ANTI-PATTERN ---
@@ -385,111 +453,5 @@ class NOVA(UnlearnTrainer):
         # Combine losses for the main model's update
         loss = self.sign * forget_loss + self.alpha * retain_loss
         logger.info(f"Alpha: {self.alpha:.7f} | Forget Loss: {forget_loss.item():.7f} | Sign: {self.sign} | Retain Loss: {retain_loss.item():.7f} || Final Loss: {loss.item():.7f}")
-        
-        # original_forget_labels = forget_inputs["labels"] # This is the full batch tensor
-        # Assuming original_forget_labels is a tensor
-        # Create a copy or filter in place if appropriate
-        # labels_to_decode = original_forget_labels.clone() # Work on a copy if original_forget_labels is needed elsewhere
-
-        # --- LOGGING Sample Input/Output ---
-        if logger.isEnabledFor(logging.INFO) and self.tokenizer is not None:
-            sample_idx = 0
-
-            original_forget_labels_tensor = inputs["forget"]["labels"]
-            # --- FORGET Sample Logging ---
-            if original_forget_labels_tensor.shape[0] > sample_idx: # Check if sample_idx is within batch bounds
-                # Original Input IDs
-                original_forget_input_ids = forget_inputs["input_ids"][sample_idx].cpu().tolist()
-                decoded_original_forget_input = self.tokenizer.decode(original_forget_input_ids, skip_special_tokens=True)
-
-                # Get predicted token IDs (most likely token for each position)
-                predicted_forget_token_ids = []
-                decoded_predicted_forget_output = ""
-                # Initialize for logging before conditional assignment
-                decoded_original_forget_labels_text = ""
-
-                if hasattr(forget_outputs, 'logits') and forget_outputs.logits is not None:
-                    forget_logits_sample = forget_outputs.logits[sample_idx] # Shape: (seq_len, vocab_size)
-                    predicted_forget_token_ids = torch.argmax(forget_logits_sample, dim=-1).cpu().tolist()
-                    decoded_predicted_forget_output = self.tokenizer.decode(predicted_forget_token_ids, skip_special_tokens=True)
-                else:
-                    logger.warning(f"Forget outputs (on perturbed input) do not contain logits for sample {sample_idx}.")
-
-                # Handle Original Labels for Forget Sample
-                # Ensure that forget_inputs["labels"] is present and not None
-                if "labels" in forget_inputs and forget_inputs["labels"] is not None:
-                    # Extract the labels for the specific sample
-                    current_forget_labels_sample_tensor = original_forget_labels_tensor[sample_idx].clone()
-
-                    # Replace -100 with pad_token_id for this specific sample's labels
-                    # Ensure pad_token_id is available as discussed in the original code
-                    if self.tokenizer.pad_token_id is None:
-                        if self.tokenizer.eos_token_id is not None:
-                            self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
-                        else:
-                            logger.warning("Tokenizer has no pad_token or eos_token. Cannot replace -100 for decoding safely.")
-                            # As a last resort, assign a default if necessary for decoding, but this might mask issues.
-                            # For a robust solution, consider how to handle labels if no pad_token_id can be determined.
-                            # For now, let's assume it will be set by the earlier logic or will cause a clear error.
-
-                    # Only proceed if pad_token_id is available
-                    if self.tokenizer.pad_token_id is not None:
-                        current_forget_labels_sample_tensor[current_forget_labels_sample_tensor == -100] = self.tokenizer.pad_token_id
-                        # Convert to a 1D list of integers for decoding
-                        decoded_original_forget_labels_text = self.tokenizer.decode(current_forget_labels_sample_tensor.cpu().tolist(), skip_special_tokens=True)
-                    else:
-                        decoded_original_forget_labels_text = "[Labels could not be decoded due to missing pad_token_id]"
-                else:
-                    decoded_original_forget_labels_text = "[No Labels Provided for Forget Sample]"
-                endcoded_original_forget_labels = inputs["forget"]["labels"][0]
-
-                logger.info(f"\n--- FORGET SAMPLE {sample_idx} (End of compute_loss) ---")
-                logger.info(f"Original Input (Encoded): {original_forget_input_ids}")
-                logger.info(f"Original Input (Decoded): '{decoded_original_forget_input}'")
-                logger.info(f"Original Labels (Encoded): {endcoded_original_forget_labels}")
-                logger.info(f"Original Labels (Decoded/Info): '{decoded_original_forget_labels_text}'") # Use the correctly decoded string here
-                logger.info(f"Predicted Output (on Perturbed Input, Encoded): {predicted_forget_token_ids}")
-                logger.info(f"Predicted Output (on Perturbed Input, Decoded): '{decoded_predicted_forget_output}'")
-            else:
-                logger.warning(f"Forget batch does not contain sample {sample_idx}.")
-
-            # --- RETAIN Sample Logging ---
-            if retain_inputs["input_ids"].shape[0] > sample_idx:
-                # Original Input IDs
-                retain_input_ids = retain_inputs["input_ids"][sample_idx].cpu().tolist()
-                decoded_retain_input = self.tokenizer.decode(retain_input_ids, skip_special_tokens=True)
-
-                # Original Labels
-                # Extract the labels for the specific sample and handle -100
-                current_retain_labels_sample_tensor = retain_inputs["labels"][sample_idx].clone()
-                if self.tokenizer.pad_token_id is not None: # Ensure pad_token_id is available
-                    current_retain_labels_sample_tensor[current_retain_labels_sample_tensor == -100] = self.tokenizer.pad_token_id
-                    decoded_retain_labels = self.tokenizer.decode(current_retain_labels_sample_tensor.cpu().tolist(), skip_special_tokens=True)
-                else:
-                    decoded_retain_labels = "[Labels could not be decoded due to missing pad_token_id]"
-
-
-                predicted_retain_token_ids = []
-                decoded_predicted_retain_output = ""
-                if hasattr(retain_outputs, 'logits') and retain_outputs.logits is not None:
-                    retain_logits_sample = retain_outputs.logits[sample_idx]
-                    predicted_retain_token_ids = torch.argmax(retain_logits_sample, dim=-1).cpu().tolist()
-                    decoded_predicted_retain_output = self.tokenizer.decode(predicted_retain_token_ids, skip_special_tokens=True)
-                else:
-                    logger.warning(f"Retain outputs do not contain logits for sample {sample_idx}.")
-                encoded_retain_labels = inputs["retain"]["labels"][0]
-                logger.info(f"\n--- RETAIN SAMPLE {sample_idx} (End of compute_loss) ---")
-                logger.info(f"Original Input (Encoded): {retain_input_ids}")
-                logger.info(f"Original Input (Decoded): '{decoded_retain_input}'")
-                logger.info(f"Original Labels (Encoded): {encoded_retain_labels}")
-                logger.info(f"Original Labels (Decoded): '{decoded_retain_labels}'")
-                logger.info(f"Predicted Output (Encoded): {predicted_retain_token_ids}")
-                logger.info(f"Predicted Output (Decoded): '{decoded_predicted_retain_output}'")
-            else:
-                logger.warning(f"Retain batch does not contain sample {sample_idx}.")
-        else:
-            if self.tokenizer is None:
-                logger.warning("Tokenizer not available for detailed sample logging.")
-        # --- End Logging Sample Input/Output ---
 
         return (loss, forget_outputs) if return_outputs else loss

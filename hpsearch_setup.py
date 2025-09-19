@@ -8,15 +8,16 @@ from optuna.samplers import GridSampler
 class Config:
     """A class to hold all configuration constants for the experiment."""
     # Experiment settings
-    BASE_MODEL = "Llama-3.2-1B-Instruct"
-    FORGET_SPLIT = "forget10"
-    RETAIN_SPLIT = "retain90"
-    HOLDOUT_SPLIT = "holdout10"
+    BASE_MODEL = "Llama-3.2-3B-Instruct"
+    # [meta-llama/Llama-3.1-8B-Instruct, meta-llama/Llama-3.2-3B-Instruct, meta-llama/Llama-3.2-1B-Instruct]
+    FORGET_SPLIT = "forget05"
+    RETAIN_SPLIT = "retain95"
+    HOLDOUT_SPLIT = "holdout05"
 
     # Optuna and Unlearning settings
     MAXIMIZE_FORGETTING = True
     STUDY_NAME = f"GridSearch_NOVA_{BASE_MODEL}_{FORGET_SPLIT}"
-    STORAGE_NAME = "sqlite:///HP_GridSearch_NOVA.db"
+    STORAGE_NAME = "sqlite:///saves/HP_GridSearch_NOVA.db"
     NUM_TRIALS = 1
 
     # Define the Grid Search Space
