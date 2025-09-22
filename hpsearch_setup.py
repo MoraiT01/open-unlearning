@@ -22,7 +22,7 @@ class Config:
 
     # Define the Grid Search Space
     GRID_SEARCH_SPACE = {
-        "noise_epochs": list(np.linspace(0, 50, 6)),
+        "noise_epochs": list([1, 10, 20 , 30, 40, 50]),
         "noise_lr": list(np.geomspace(0.00000001, 0.01, 7)),
         "regularization_term": list(np.geomspace(0.0000001, 1, 8)),
         "alpha": list(np.geomspace(0.00000001, 1, 9)),

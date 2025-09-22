@@ -11,6 +11,9 @@ import chromadb
 import uuid
 from typing import Dict, Any
 
+import logging
+logger = logging.getLogger(__name__)
+
 # Initialize the ChromaDB client
 ROOT_DIR = "saves/chromadb"
 client = chromadb.PersistentClient(path=ROOT_DIR)
@@ -45,6 +48,7 @@ def get_tokenizer(
     for name, path in TOKENIZER_MAPPING.items():
         if name in base_model:
             model_path = path
+    logger.info(f"Loading tokenizer for {model_path}")
     tokenizer = AutoTokenizer.from_pretrained(
         model_path,
         token=HF_TOKEN
@@ -53,7 +57,8 @@ def get_tokenizer(
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     if tokenizer.pad_token_id is None:
-        tokenizer.pad_token_id = tokenizer.eos_token_id 
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+    logger.info(f"Setting PAD token to {tokenizer.pad_token}")
 
     return tokenizer
 
@@ -138,13 +143,15 @@ def put(
         metadatas=metadatas,  # type: ignore
         ids=ids,
     )
+    try:
+        os.makedirs(os.path.join(ROOT_DIR, "anti"), exist_ok=True)
+        save(anti_pattern, os.path.join(ROOT_DIR, "anti", f"{ids}.pt"))
+        os.makedirs(os.path.join(ROOT_DIR, "prior_embedding"), exist_ok=True)
+        save(sample_embedding, os.path.join(ROOT_DIR, "prior_embedding", f"{ids}.pt"))
+    except Exception as e:
+        logger.error(f"Failed to save tensor: {e}")
 
-    os.makedirs(os.path.join(ROOT_DIR, "anti"), exist_ok=True)
-    save(anti_pattern, os.path.join(ROOT_DIR, "anti", f"{ids}.pt"))
-    os.makedirs(os.path.join(ROOT_DIR, "prior_embedding"), exist_ok=True)
-    save(sample_embedding, os.path.join(ROOT_DIR, "prior_embedding", f"{ids}.pt"))
-
-    print(f"✅ Saved tensor mapping to ChromaDB collection: {COLLECTION_NAME}")
+    logger.info(f"✅ Saved tensor mapping to ChromaDB collection: {COLLECTION_NAME}")
 
 def get(
     base_model: str,
@@ -196,6 +203,7 @@ def get(
         dtype = dtype_map.get(anti_pattern_dtype_str, None)  # type: ignore
         if dtype is None:
             raise ValueError(f"Unknown tensor dtype: {anti_pattern_dtype_str}")
+        logger.info(f"Retrieved anti pattern, shape: {anti_patter_tensor.shape}")
         return anti_patter_tensor
     else:
         raise KeyError("The sample you are looking for does not exist")
@@ -256,6 +264,10 @@ def delete(
         results = collection.get(
             where=metadata_filter
         )
+
+        if not results['ids']:
+            print("❌ Document not found.")
+            return False
 
         collection.delete(
             ids=[results['ids'][0]]
