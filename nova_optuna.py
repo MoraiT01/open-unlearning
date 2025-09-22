@@ -140,17 +140,20 @@ def objective(trial):
 
         # Cleanup
         if not Config.KEEP_MODEL_TENSORS:
-            model_tensors_file_path = os.path.join(unlearn_output_dir, "model.safetensors")
-            if os.path.exists(model_tensors_file_path):
-                os.remove(model_tensors_file_path)
-                logger.info(f"Deleted {model_tensors_file_path} for trial {trial.number}.")
+            deletion_list = ["model.safetensors", "tokenizer_config.json", "tokenizer.json"]
+
+            for element in deletion_list:
+                element_file_path = os.path.join(unlearn_output_dir, element)
+                if os.path.exists(element_file_path):
+                    os.remove(element_file_path)
+                    logger.info(f"Deleted {element_file_path} for trial {trial.number}.")
 
         return objective_value
 
     except (subprocess.CalledProcessError, FileNotFoundError, KeyError, ValueError) as e:
         logger.error(f"Trial {trial.number} failed with an error: {e}")
         # Mark the trial as failed and return a poor score
-        return float('-inf')
+        raise ValueError("An error occurred, marking trial as failed.")
 
 
 def run_worker():

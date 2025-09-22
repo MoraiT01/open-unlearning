@@ -54,7 +54,7 @@ python check_status.py > saves/status.txt
 # Check the number of running worker jobs for this specific job array
 RUNNING_JOBS=$(squeue -h -u $USER | wc -l)
 # Loop until all trials are complete (saves/status.txt will contain '0' or a smaller number than 4)
-while [[ $RUNNING_JOBS -gt 1 ]]; do
+while [[ $(cat saves/status.txt) -gt 0 && $RUNNING_JOBS -gt 1 ]]; do
 
   # Check the number of running worker jobs for this specific job array
   RUNNING_JOBS=$(squeue -h -u $USER | wc -l)
