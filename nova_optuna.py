@@ -8,6 +8,7 @@ import logging
 import optuna
 
 from hpsearch_setup import Config, create_study_with_storage
+from src.data.nova_speedup import delete
 
 # --- 2. Modular Logging Setup ---
 def setup_logging():
@@ -147,6 +148,15 @@ def objective(trial):
                 if os.path.exists(element_file_path):
                     os.remove(element_file_path)
                     logger.info(f"Deleted {element_file_path} for trial {trial.number}.")
+        
+        if not Config.KEEP_ANTI_PATTERNS:
+            delete(
+                base_model=f"open-unlearning/tofu_{Config.BASE_MODEL}_full",
+                noise_epochs=opt_noise_epochs,
+                noise_lr=opt_noise_lr,
+                reg_term=opt_regularization_term,
+                soft_target=s_target,
+            )
 
         return objective_value
 

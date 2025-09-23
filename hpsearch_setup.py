@@ -46,6 +46,7 @@ class Config:
     LOG_FILE = f"logs/gridsearch_{BASE_MODEL}_{FORGET_SPLIT}.log"
     # Cleanup
     KEEP_MODEL_TENSORS = False
+    KEEP_ANTI_PATTERNS = False
     
     # Environment variables
     os.environ["HF_HOME"] = os.path.join(os.path.expanduser("~"), ".cache", "huggingface")

@@ -48,7 +48,7 @@ def get_tokenizer(
     for name, path in TOKENIZER_MAPPING.items():
         if name in base_model:
             model_path = path
-    logger.info(f"Loading tokenizer for {model_path}")
+    
     tokenizer = AutoTokenizer.from_pretrained(
         model_path,
         token=HF_TOKEN
@@ -58,7 +58,6 @@ def get_tokenizer(
         tokenizer.pad_token = tokenizer.eos_token
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
-    logger.info(f"Setting PAD token to {tokenizer.pad_token}")
 
     return tokenizer
 
@@ -68,7 +67,7 @@ def get_metadata(
     noise_lr: float,
     reg_term: float,
     soft_target: bool,
-    sample_key_str: str,
+    sample_key_str: str = None,
     #anti_pattern_str: str = "",
     anti_pattern_dtype_str: str = "",
     #sample_embedding_str: str = "",
@@ -86,6 +85,14 @@ def get_metadata(
                 {"reg_term": {"$eq": reg_term}},
                 {"soft_target": {"$eq": soft_target}},
                 {"sample_key_str": {"$eq": sample_key_str}},
+            ]
+        } if sample_key_str is not None else {
+            "$and": [
+                {"base_model": {"$eq": base_model}},
+                {"noise_epochs": {"$eq": noise_epochs}},
+                {"noise_lr": {"$eq": noise_lr}},
+                {"reg_term": {"$eq": reg_term}},
+                {"soft_target": {"$eq": soft_target}},
             ]
         }
     if anti_pattern_dtype_str == "": #anti_pattern_str == "" and 
@@ -203,7 +210,7 @@ def get(
         dtype = dtype_map.get(anti_pattern_dtype_str, None)  # type: ignore
         if dtype is None:
             raise ValueError(f"Unknown tensor dtype: {anti_pattern_dtype_str}")
-        logger.info(f"Retrieved anti pattern, shape: {anti_patter_tensor.shape}")
+        
         return anti_patter_tensor
     else:
         raise KeyError("The sample you are looking for does not exist")
@@ -243,7 +250,7 @@ def delete(
     noise_lr: float,
     reg_term: float,
     soft_target: bool,
-    sample: Tensor,
+    sample: Tensor = None,
 ) -> bool:
     """
     Deletes a document from the ChromaDB collection based on a sample vector and its metadata.
@@ -256,7 +263,7 @@ def delete(
         noise_lr=noise_lr,
         reg_term=reg_term,
         soft_target=soft_target,
-        sample_key_str=str(sample.tolist()),
+        sample_key_str=str(sample.tolist()) if sample is not None else None,
         as_filter=True,
     )
 
@@ -268,15 +275,39 @@ def delete(
         if not results['ids']:
             print("❌ Document not found.")
             return False
+        
+        # Get all IDs before deleting to remove corresponding files
+        ids_to_delete = results['ids']
 
         collection.delete(
-            ids=[results['ids'][0]]
+            ids=ids_to_delete
         )
-        os.remove(os.path.join(ROOT_DIR, "anti", f"{results['ids'][0]}.pt"))
-        os.remove(os.path.join(ROOT_DIR, "prior_embedding", f"{results['ids'][0]}.pt"))
 
-        print("✅ Successfully deleted document.")
+        # Now, delete the saved files
+        for doc_id in ids_to_delete:
+            anti_file = os.path.join(ROOT_DIR, "anti", f"{doc_id}.pt")
+            prior_file = os.path.join(ROOT_DIR, "prior_embedding", f"{doc_id}.pt")
+            
+            if os.path.exists(anti_file):
+                os.remove(anti_file)
+            if os.path.exists(prior_file):
+                os.remove(prior_file)
+        
+        print("✅ Successfully deleted document(s).")
         return True
     except Exception as e:
-        print(f"❌ Failed to delete document: {e}")
+        print(f"❌ Failed to delete document(s): {e}")
         return False
+    
+def check_document_count():
+    """
+    Checks and logs the number of documents in the ChromaDB collection.
+    """
+    try:
+        collection = get_collection()
+        doc_count = collection.count()
+        logger.info(f"The collection '{COLLECTION_NAME}' contains {doc_count} documents.")
+        return doc_count
+    except Exception as e:
+        logger.error(f"Failed to count documents: {e}")
+        return -1
