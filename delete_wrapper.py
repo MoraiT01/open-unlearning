@@ -31,8 +31,6 @@ def delete(
     Deletes a document from the ChromaDB collection based on a sample vector and its metadata.
     """
     collection = get_collection()
-    
-    print(f"{base_model} | {noise_epochs} | {noise_lr} | {reg_term} | {soft_target}")
 
     metadata_filter = {
             "$and": [
@@ -83,10 +81,10 @@ def check_document_count():
     try:
         collection = get_collection()
         doc_count = collection.count()
-        print(f"The collection '{COLLECTION_NAME}' contains {doc_count} documents.")
+        
         return doc_count
     except Exception as e:
-        logger.error(f"Failed to count documents: {e}")
+        print(f"Failed to count documents: {e}")
         return -1
 
 def main():
@@ -98,8 +96,7 @@ def main():
     parser.add_argument("--soft_target", type=lambda x: x.lower() == 'true', required=True, help="Soft target flag.")
     
     args = parser.parse_args()
-    print(f"The Count of the documents is: {check_document_count()}")
-
+    
     delete(
         base_model=args.base_model,
         noise_epochs=args.noise_epochs,
@@ -107,8 +104,6 @@ def main():
         reg_term=args.reg_term,
         soft_target=args.soft_target
     )
-
-    print(f"The Count of the documents is: {check_document_count()}")
 
 if __name__ == "__main__":
     main()
