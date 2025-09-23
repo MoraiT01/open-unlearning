@@ -247,6 +247,7 @@ class NOVA(UnlearnTrainer):
                     soft_target=self.soft_target,
                     sample=torch.squeeze(single_forget_input["input_ids"], 0),
                 ):
+                logger.info(f"{self.model_name} | {self.noise_epochs} | {self.noise_lr} | {self.regularization_term} | {self.soft_target}")
                 logger.info(f"Matching Prior Processed Anti-pattern found!")
                 all_optimized_perturbations.append(
                     data.nova_speedup.get(

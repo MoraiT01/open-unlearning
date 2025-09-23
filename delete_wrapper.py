@@ -2,13 +2,11 @@ import argparse
 import logging
 import os
 
-logger = logging.getLogger(__name__)
-
 from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
 import chromadb
 COLLECTION_NAME = "nova_speedup_collection"
 
-ROOT_DIR = "saves/chromadb"
+ROOT_DIR = "/fast_storage/kastler/open-unlearning/saves/chromadb"
 client = chromadb.PersistentClient(path=ROOT_DIR)
 
 def get_collection() -> chromadb.Collection:
@@ -34,6 +32,8 @@ def delete(
     """
     collection = get_collection()
     
+    print(f"{base_model} | {noise_epochs} | {noise_lr} | {reg_term} | {soft_target}")
+
     metadata_filter = {
             "$and": [
                 {"base_model": {"$eq": base_model}},
@@ -83,7 +83,7 @@ def check_document_count():
     try:
         collection = get_collection()
         doc_count = collection.count()
-        logger.info(f"The collection '{COLLECTION_NAME}' contains {doc_count} documents.")
+        print(f"The collection '{COLLECTION_NAME}' contains {doc_count} documents.")
         return doc_count
     except Exception as e:
         logger.error(f"Failed to count documents: {e}")
@@ -98,6 +98,7 @@ def main():
     parser.add_argument("--soft_target", type=lambda x: x.lower() == 'true', required=True, help="Soft target flag.")
     
     args = parser.parse_args()
+    print(f"The Count of the documents is: {check_document_count()}")
 
     delete(
         base_model=args.base_model,
@@ -107,7 +108,7 @@ def main():
         soft_target=args.soft_target
     )
 
-    logger.info(f"The Count of the documents is: {check_document_count()}")
+    print(f"The Count of the documents is: {check_document_count()}")
 
 if __name__ == "__main__":
     main()
