@@ -384,7 +384,8 @@ class NOVA(UnlearnTrainer):
         retain_inputs = inputs["retain"]
 
         if not hasattr(self, 'model_name'):
-            self.model_name = model.config._name_or_path
+            # self.model_name = model.config._name_or_path # It appears that the name is taken from the open-unlearning\configs\experiment\unlearn\tofu\default.yaml
+            self.model_name = "open-unlearning/tofu_Llama-3.2-3B-Instruct_full" # For Now I need to hardcode it since I don't know how to determine is during runtime
 
         # --- Phase 1: Optimize a batch-specific AntiPattern and get its output ---
         # For anti-pattern optimization, use the original hard labels.
