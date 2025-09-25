@@ -34,6 +34,7 @@ conda info --envs
 python hpsearch_setup.py
 # This is a small helper script that queries the DB and prints the number of pending trials
 python check_status.py > saves/status.txt
+current_datetime=$(date +"%Y-%m-%d_%H-%M-%S")
 
 ### First Worker is applicable
 # Check the number of running worker jobs for this specific job array
@@ -43,7 +44,7 @@ RUNNING_JOBS=$(squeue -h -u $USER | wc -l)
     # This worker will connect to the same database and pick the next available trial
     sbatch worker.sh
     RUNNING_JOBS=$(squeue -h -u $USER | wc -l)
-    echo "Submitted a new worker job. Total Jobs: $RUNNING_JOBS"
+    echo "[$current_datetime] Submitted a new worker job. Total Jobs: $RUNNING_JOBS"
   fi
 
 # Wait a bit before checking again
