@@ -4,7 +4,6 @@ import uuid
 from typing import Dict, Any
 
 import logging
-from contextlib import contextmanager
 
 from torch import Tensor, save, load
 from torch import (
@@ -83,27 +82,41 @@ def get_tokenizer(base_model: str):
     return tokenizer
 
 def get_metadata(
-    base_model: str, noise_epochs: int, noise_lr: float, reg_term: float, 
-    soft_target: bool, sample_key_str: str = None, 
-    anti_pattern_dtype_str: str = "", as_filter: bool = False,
+    base_model: str,
+    noise_epochs: int,
+    noise_lr: float,
+    reg_term: float,
+    soft_target: bool,
+    sample_key_str: str = None,  # type: ignore
+    #anti_pattern_str: str = "",
+    anti_pattern_dtype_str: str = "",
+    #sample_embedding_str: str = "",
+    as_filter: bool = False,
 ) -> Dict[str, Any]:
-    """Creates a metadata dictionary from the input parameters."""
-    # (Same logic as before, but with more explicit checks)
+    """
+    Creates a metadata dictionary from the input parameters.
+    """
     if as_filter:
-        metadata_filter = {
-            "base_model": {"$eq": base_model},
-            "noise_epochs": {"$eq": noise_epochs},
-            "noise_lr": {"$eq": noise_lr},
-            "reg_term": {"$eq": reg_term},
-            "soft_target": {"$eq": soft_target},
+        return {
+            "$and": [
+                {"base_model": {"$eq": base_model}},
+                {"noise_epochs": {"$eq": noise_epochs}},
+                {"noise_lr": {"$eq": noise_lr}},
+                {"reg_term": {"$eq": reg_term}},
+                {"soft_target": {"$eq": soft_target}},
+                {"sample_key_str": {"$eq": sample_key_str}},
+            ]
+        } if sample_key_str is not None else {
+            "$and": [
+                {"base_model": {"$eq": base_model}},
+                {"noise_epochs": {"$eq": noise_epochs}},
+                {"noise_lr": {"$eq": noise_lr}},
+                {"reg_term": {"$eq": reg_term}},
+                {"soft_target": {"$eq": soft_target}},
+            ]
         }
-        if sample_key_str is not None:
-            metadata_filter["sample_key_str"] = {"$eq": sample_key_str}
-        return {"$and": [metadata_filter]}
-    
-    if not anti_pattern_dtype_str:
-        raise ValueError("No values parsed for 'anti_pattern_dtype_str'!")
-        
+    if anti_pattern_dtype_str == "": #anti_pattern_str == "" and 
+        raise Exception("No values parsed for: 'tensor_value', 'tensor_dtype'!")
     return {
         "base_model": base_model,
         "noise_epochs": noise_epochs,
@@ -111,7 +124,9 @@ def get_metadata(
         "reg_term": reg_term,
         "soft_target": soft_target,
         "sample_key_str": sample_key_str,
+        #"anti_pattern_str": anti_pattern_str,
         "anti_pattern_dtype_str": anti_pattern_dtype_str,
+        #"sample_embedding_str": sample_embedding_str
     }
 
 # -----------------------------------------------------------------------------
@@ -159,8 +174,12 @@ def put(
 
 def get(
     db_manager: DatabaseManager,
-    base_model: str, noise_epochs: int, noise_lr: float, reg_term: float, 
-    soft_target: bool, sample: Tensor, to: str,
+    base_model: str,
+    noise_epochs: int,
+    noise_lr: float,
+    reg_term: float, 
+    soft_target: bool, 
+    sample: Tensor, to: str,
 ) -> Tensor:
     """Retrieves the value associated with a sample vector from ChromaDB."""
     metadata_filter = get_metadata(
@@ -209,14 +228,21 @@ def exists(
 
 def delete(
     db_manager: DatabaseManager,
-    base_model: str, noise_epochs: int, noise_lr: float, reg_term: float, 
-    soft_target: bool, sample: Tensor = None,
+    base_model: str, 
+    noise_epochs: int, 
+    noise_lr: float, 
+    reg_term: float, 
+    soft_target: bool, 
+    sample: Tensor = None, # type: ignore
 ) -> bool:
     """Deletes a document and its corresponding tensors from the ephemeral session."""
     metadata_filter = get_metadata(
-        base_model=base_model, noise_epochs=noise_epochs, noise_lr=noise_lr,
-        reg_term=reg_term, soft_target=soft_target,
-        sample_key_str=str(sample.tolist()) if sample is not None else None,
+        base_model=base_model,
+        noise_epochs=noise_epochs,
+        noise_lr=noise_lr,
+        reg_term=reg_term,
+        soft_target=soft_target,
+        sample_key_str=str(sample.tolist()) if sample is not None else None,  # type: ignore
         as_filter=True,
     )
     
@@ -242,7 +268,9 @@ def delete(
         logger.error(f"❌ Failed to delete document(s): {e}")
         return False
 
-def check_document_count(db_manager: DatabaseManager):
+def check_document_count(
+        db_manager: DatabaseManager
+        ):
     """Checks and logs the number of documents in the ChromaDB collection."""
     try:
         doc_count = db_manager.collection.count()
