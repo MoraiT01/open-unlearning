@@ -63,22 +63,23 @@ while [[ $(cat saves/status.txt) -gt 0 && $RUNNING_JOBS -gt 1 ]]; do
     # This worker will connect to the same database and pick the next available trial
     sbatch worker.sh
     RUNNING_JOBS=$(squeue -h -u $USER | wc -l)
-    echo "Submitted a new worker job. Total Jobs: $RUNNING_JOBS"
+    echo "[$current_datetime] Submitted a new worker job. Total Jobs: $RUNNING_JOBS"
   fi
   if [[ $(cat saves/status.txt) -gt 0 && $RUNNING_JOBS -gt 4 ]]; then
-    echo "Waiting on an open Job Slot. Total Jobs: $RUNNING_JOBS"
+    echo "[$current_datetime] Waiting on an open Job Slot. Total Jobs: $RUNNING_JOBS"
   fi
 
   # Wait a bit before checking again
   sleep 300
-  
+  current_datetime=$(date +"%Y-%m-%d_%H-%M-%S")
+
   # Update the trial status count
   python check_status.py > saves/status.txt
 
   # Check the number of running worker jobs for this specific job array
   RUNNING_JOBS=$(squeue -h -u $USER | wc -l)
   if [[ $(cat saves/status.txt) -eq 0 && $RUNNING_JOBS -gt 1 ]]; then
-    echo "Submitted all possible Trials, Waiting on them to finish. Total Jobs: $RUNNING_JOBS"
+    echo "[$current_datetime] Submitted all possible Trials, Waiting on them to finish. Total Jobs: $RUNNING_JOBS"
   fi
 done
 

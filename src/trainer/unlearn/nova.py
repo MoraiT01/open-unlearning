@@ -50,10 +50,24 @@ class NOVA(UnlearnTrainer):
         self.alpha = alpha
         self.sign = sign
         self.soft_target = soft_target
+        self.db_manager = data.nova_speedup.DatabaseManager()
+        self.db_manager.__enter__() # Explicitly start the context
+        # Logger
         logger.info(f"NOVA initialized with: n_epochs {self.noise_epochs}| n_lr {self.noise_lr}| reg_term {self.regularization_term}| alpha {self.alpha}| sign {self.sign}| soft {self.soft_target}")
         # Initialize KLDivLoss for soft targets
-        self.kl_loss_fct = nn.KLDivLoss(reduction='batchmean') # Use 'batchmean' or 'sum' as appropriate
+        self.kl_loss_fct = nn.KLDivLoss(reduction='batchmean') 
 
+    def __del__(self):
+        """
+        Automatically handles cleanup when the object is garbage collected.
+        ⚠️ Warning: This is not guaranteed to be called.
+        """
+        try:
+            self.db_manager.__exit__(None, None, None)
+        except Exception as e:
+            # Handle potential errors during cleanup
+            print(f"Failed to clean up NOVA database: {e}")
+    
     def get_soft_target(self, model: nn.Module, forget_inputs: dict) -> torch.Tensor:
         """
         Generates soft targets (logits) for the forget inputs by passing them
@@ -240,6 +254,7 @@ class NOVA(UnlearnTrainer):
             single_attention_mask = single_forget_input["attention_mask"].to(model.device)
             # Here we check, whether the anti-pattern has been created for this sample already.
             if data.nova_speedup.exists(
+                    db_manager=self.db_manager,
                     base_model=self.model_name,
                     noise_epochs=self.noise_epochs,
                     noise_lr=self.noise_lr,
@@ -250,6 +265,7 @@ class NOVA(UnlearnTrainer):
                 logger.info(f"Matching Prior Processed Anti-pattern found!")
                 all_optimized_perturbations.append(
                     data.nova_speedup.get(
+                        db_manager=self.db_manager,
                         base_model=self.model_name,
                         noise_epochs=self.noise_epochs,
                         noise_lr=self.noise_lr,
@@ -311,6 +327,7 @@ class NOVA(UnlearnTrainer):
                 # Save the optimized perturbation for this sample
                 logger.info(f"Saving created Anti-pattern for later Use")
                 data.nova_speedup.put(
+                    db_manager=self.db_manager,
                     base_model=self.model_name,
                     noise_epochs=self.noise_epochs,
                     noise_lr=self.noise_lr,
