@@ -1,5 +1,4 @@
 import os
-import shutil
 import uuid
 from typing import Dict, Any
 
@@ -36,8 +35,8 @@ class DatabaseManager:
     A context manager to handle an ephemeral ChromaDB session, including 
     the creation and cleanup of temporary directories for tensor storage.
     """
-    def __init__(self):
-        self.temp_dir = os.path.join(BASE_ROOT_DIR, str(uuid.uuid4()))
+    def __init__(self, db_id: str = "default"):
+        self.temp_dir = os.path.join(BASE_ROOT_DIR, db_id)
         self.client = chromadb.PersistentClient(path=self.temp_dir)
         self.collection = self.client.get_or_create_collection(
             name=COLLECTION_NAME,
@@ -53,17 +52,17 @@ class DatabaseManager:
         logger.info(f"Ephemeral ChromaDB session started at: {self.temp_dir}")
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """
-        Clean up all temporary files and the database directory.
-        """
-        try:
-            self.client.delete_collection(name=COLLECTION_NAME)
-            if os.path.exists(self.temp_dir):
-                shutil.rmtree(self.temp_dir)
-            logger.info(f"✅ Successfully cleaned up ephemeral session: {self.temp_dir}")
-        except Exception as e:
-            logger.error(f"❌ Failed to clean up temporary directory: {e}")
+    # def __exit__(self, exc_type, exc_val, exc_tb):
+    #     """
+    #     Clean up all temporary files and the database directory.
+    #     """
+    #     try:
+    #         self.client.delete_collection(name=COLLECTION_NAME)
+    #         if os.path.exists(self.temp_dir):
+    #             shutil.rmtree(self.temp_dir)
+    #         logger.info(f"✅ Successfully cleaned up ephemeral session: {self.temp_dir}")
+    #     except Exception as e:
+    #         logger.error(f"❌ Failed to clean up temporary directory: {e}")
 
 # -----------------------------------------------------------------------------
 # Helper Functions (refactored to accept client and collection)

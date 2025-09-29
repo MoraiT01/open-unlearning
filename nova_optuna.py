@@ -1,11 +1,13 @@
 import sys
 import os
+import shutil
 import subprocess
 import json
 import math
 import time
 import logging
 import optuna
+import uuid
 
 from hpsearch_setup import Config, create_study_with_storage
 
@@ -68,6 +70,8 @@ def objective(trial):
     eval_output_dir = os.path.join(unlearn_output_dir, "evals")
     summary_file_path = os.path.join(eval_output_dir, "TOFU_SUMMARY.json")
 
+    chromadb_id = str(uuid.uuid4())
+
     os.makedirs(unlearn_output_dir, exist_ok=True)
     os.makedirs(eval_output_dir, exist_ok=True)
     s_target = True if int(opt_soft_targets)==int(1) else False
@@ -89,6 +93,7 @@ def objective(trial):
             f"trainer.method_args.alpha={opt_alpha}",
             f"trainer.method_args.sign={opt_sign}",
             f"trainer.method_args.soft_target={s_target}",
+            f"trainer.method_args.db_id={chromadb_id}",
             f"paths.output_dir={unlearn_output_dir}",
         ]
         logger.info(f"Starting Train Trial {trial.number}: {' '.join(train_command)}")
@@ -138,7 +143,15 @@ def objective(trial):
         trial.set_user_attr("Forget Quality (log10-scale)", log_forget_quality)
         trial.set_user_attr("Model Utility", model_utility)
 
-        # Cleanup
+        return objective_value
+
+    except (subprocess.CalledProcessError, FileNotFoundError, KeyError, ValueError) as e:
+        logger.error(f"Trial {trial.number} failed with an error: {e}")
+        # Mark the trial as failed and return a poor score
+        raise ValueError("An error occurred, marking trial as failed.")
+    
+    finally:# Cleanup
+        # Delete model.safetensors, tokenizer_config.json, and tokenizer.json
         if not Config.KEEP_MODEL_TENSORS:
             deletion_list = ["model.safetensors", "tokenizer_config.json", "tokenizer.json"]
 
@@ -148,13 +161,14 @@ def objective(trial):
                     os.remove(element_file_path)
                     logger.info(f"Deleted {element_file_path} for trial {trial.number}.")
 
-        return objective_value
-
-    except (subprocess.CalledProcessError, FileNotFoundError, KeyError, ValueError) as e:
-        logger.error(f"Trial {trial.number} failed with an error: {e}")
-        # Mark the trial as failed and return a poor score
-        raise ValueError("An error occurred, marking trial as failed.")
-
+        # Delete the chromadb created for this 
+        try:
+            temp_dir = os.path.join("saves/chromadb", chromadb_id)
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+            logger.info(f"✅ Successfully cleaned up ephemeral session: {temp_dir}")
+        except Exception as e:
+            logger.error(f"❌ Failed to clean up temporary directory: {e}")
 
 def run_worker():
     """A single worker function for parallel optimization."""
