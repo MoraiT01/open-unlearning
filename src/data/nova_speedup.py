@@ -69,7 +69,10 @@ class DatabaseManager:
 # -----------------------------------------------------------------------------
 def get_tokenizer(base_model: str):
     """Create the Tokenizer for the parsed model."""
-    model_path = TOKENIZER_MAPPING.get(base_model)
+    model_path = None
+    for name, path in TOKENIZER_MAPPING.items():
+        if name in base_model:
+            model_path = path
     if not model_path:
         raise ValueError(f"Model {base_model} not found in tokenizer mapping.")
 
