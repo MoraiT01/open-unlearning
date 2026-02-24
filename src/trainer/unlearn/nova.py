@@ -296,35 +296,36 @@ class NOVA(UnlearnTrainer):
                     ap_target = single_forget_input["labels"].to(model.device)
                     ap_labels_for_model_call = ap_target
 
-                with torch.enable_grad():
-                    for epoch_idx in range(self.noise_epochs):
-                        optimizer_for_this_sample.zero_grad()
+                if self.noise_epochs > 0:
+                    with torch.enable_grad():
+                        for epoch_idx in range(self.noise_epochs):
+                            optimizer_for_this_sample.zero_grad()
 
-                        perturbation = anti_pattern_instance()
+                            perturbation = anti_pattern_instance()
 
-                        model_outputs = model(
-                            inputs_embeds=perturbation,
-                            # attention_mask=single_attention_mask,
-                            labels=ap_labels_for_model_call,
-                        )
+                            model_outputs = model(
+                                inputs_embeds=perturbation,
+                                # attention_mask=single_attention_mask,
+                                labels=ap_labels_for_model_call,
+                            )
 
-                        if self.soft_target:
-                            log_softmax_model_outputs = F.log_softmax(model_outputs.logits, dim=-1)
-                            softmax_soft_targets = F.softmax(ap_target, dim=-1)
-                            kl_loss = -self.kl_loss_fct(log_softmax_model_outputs, softmax_soft_targets)
-                            anti_pattern_loss = kl_loss
-                        else:
-                            anti_pattern_loss = -model_outputs.loss
+                            if self.soft_target:
+                                log_softmax_model_outputs = F.log_softmax(model_outputs.logits, dim=-1)
+                                softmax_soft_targets = F.softmax(ap_target, dim=-1)
+                                kl_loss = -self.kl_loss_fct(log_softmax_model_outputs, softmax_soft_targets)
+                                anti_pattern_loss = kl_loss
+                            else:
+                                anti_pattern_loss = -model_outputs.loss
 
-                        # Add regularization term
-                        anti_pattern_loss += self.regularization_term * torch.mean(torch.square(perturbation.detach()))
+                            # Add regularization term
+                            anti_pattern_loss += self.regularization_term * torch.mean(torch.square(perturbation.detach()))
 
-                        anti_pattern_loss.backward()
-                        optimizer_for_this_sample.step()
+                            anti_pattern_loss.backward()
+                            optimizer_for_this_sample.step()
 
-                        if (epoch_idx + 1) % max(1, self.noise_epochs // 5) == 0:
-                            logger.info(f"Sample {i+1}/{batch_size}, Anti-pattern Epoch {epoch_idx+1}/{self.noise_epochs}, Current Loss: {anti_pattern_loss.item():.4f}")
-                        
+                            if (epoch_idx + 1) % max(1, self.noise_epochs // 5) == 0:
+                                logger.info(f"Sample {i+1}/{batch_size}, Anti-pattern Epoch {epoch_idx+1}/{self.noise_epochs}, Current Loss: {anti_pattern_loss.item():.4f}")
+
                 # Save the optimized perturbation for this sample
                 logger.info(f"Saving created Anti-pattern for later Use")
                 data.nova_speedup.put(

@@ -3,10 +3,10 @@ defaults:
 
 handler: NOVA
 method_args:
-  noise_epochs: 10
-  noise_lr: 0.0001
-  regularization_term: 0.0001
-  alpha: 0.001
-  sign: 1
+  noise_epochs: 0
+  noise_lr: 0.
+  regularization_term: 0.
+  alpha: 0.7
+  sign: -1
   soft_target: False
-  db_id: default
+  db_id: default_post
