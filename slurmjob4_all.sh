@@ -75,7 +75,7 @@ for ALGO in "${algorithms[@]}"; do
             RUN_TASK_NAME="${ALGO}_${MODEL_NAME_SHORT}_${FORGET_SPLIT_NAME}_${TIMESTAMP}"
             
             # Base directory for outputs of this specific unlearning run
-            UNLEARN_OUTPUT_BASE="saves/unlearn/bulk_run/${ALGO}/${MODEL}/${FORGET_SPLIT_NAME}/${RUN_TASK_NAME}"
+            UNLEARN_OUTPUT_BASE="saves/unlearn/bulk_run_post/${ALGO}/${MODEL}/${FORGET_SPLIT_NAME}/${RUN_TASK_NAME}"
             EVAL_OUTPUT_DIR="${UNLEARN_OUTPUT_BASE}/evals"
             
             mkdir -p "$UNLEARN_OUTPUT_BASE"
