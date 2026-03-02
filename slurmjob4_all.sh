@@ -37,8 +37,8 @@ echo "Running on host: $(hostname)"
 echo "Current directory: $(pwd)"
 
 # --- Define lists for iteration ---
-declare -a algorithms=("GradAscent" "GradDiff" "NPO" "DPO" "SimNPO" "RMU" "UNDIAL" "NOVA")
-# declare -a algorithms=("NOVA")
+# declare -a algorithms=("GradAscent" "GradDiff" "NPO" "DPO" "SimNPO" "RMU" "UNDIAL" "NOVA")
+declare -a algorithms=("NOVA")
 declare -a models=("Llama-3.1-8B-Instruct" "Llama-3.2-3B-Instruct" "Llama-3.2-1B-Instruct")
 declare -a forget_splits=("forget10" "forget05" "forget01")
 
@@ -75,7 +75,7 @@ for ALGO in "${algorithms[@]}"; do
             RUN_TASK_NAME="${ALGO}_${MODEL_NAME_SHORT}_${FORGET_SPLIT_NAME}_${TIMESTAMP}"
             
             # Base directory for outputs of this specific unlearning run
-            UNLEARN_OUTPUT_BASE="saves/unlearn/bulk_run/${ALGO}/${MODEL}/${FORGET_SPLIT_NAME}/${RUN_TASK_NAME}"
+            UNLEARN_OUTPUT_BASE="saves/unlearn/bulk_run_post/${ALGO}/${MODEL}/${FORGET_SPLIT_NAME}/${RUN_TASK_NAME}"
             EVAL_OUTPUT_DIR="${UNLEARN_OUTPUT_BASE}/evals"
             
             mkdir -p "$UNLEARN_OUTPUT_BASE"
@@ -138,9 +138,32 @@ for ALGO in "${algorithms[@]}"; do
                 # For the next Run, I'd like to keep the models
             fi
             echo "" # Add a newline for readability between runs
+            #!/bin/bash
+
+            # Configuration
+            CHROMADB_ID="default"
+            BASE_DIR="saves/chromadb"
+            TEMP_DIR="${BASE_DIR}/${CHROMADB_ID}"
+
+            # Check if an ID was provided
+            if [ -z "$CHROMADB_ID" ]; then
+                echo "❌ Error: No chromadb_id provided."
+                exit 1
+            fi
+
+            # Logic to delete the directory
+            if [ -d "$TEMP_DIR" ]; then
+                if rm -rf "$TEMP_DIR"; then
+                    echo "✅ Successfully cleaned up ephemeral session: ${TEMP_DIR}"
+                else
+                    echo "❌ Failed to clean up temporary directory: ${TEMP_DIR}"
+                    exit 1
+                fi
+            else
+                echo "ℹ️ Directory does not exist: ${TEMP_DIR}"
+            fi
         done
     done
 done
 
 echo "All bulk unlearning runs finished."
-
