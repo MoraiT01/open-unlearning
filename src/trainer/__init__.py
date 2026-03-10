@@ -11,6 +11,11 @@ from trainer.unlearn.dpo import DPO
 from trainer.unlearn.simnpo import SimNPO
 from trainer.unlearn.rmu import RMU
 from trainer.unlearn.undial import UNDIAL
+from trainer.unlearn.ceu import CEU
+from trainer.unlearn.satimp import SatImp
+from trainer.unlearn.wga import WGA
+from trainer.unlearn.pdu import PDU
+
 
 import logging
 
@@ -45,7 +50,7 @@ def load_trainer(
     model,
     train_dataset=None,
     eval_dataset=None,
-    tokenizer=None,
+    processing_class=None,
     data_collator=None,
     evaluators=None,
     template_args=None,
@@ -65,7 +70,7 @@ def load_trainer(
         model=model,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
-        tokenizer=tokenizer,
+        processing_class=processing_class,
         data_collator=data_collator,
         args=trainer_args,
         evaluators=evaluators,
@@ -90,3 +95,7 @@ _register_trainer(DPO)
 _register_trainer(SimNPO)
 _register_trainer(RMU)
 _register_trainer(UNDIAL)
+_register_trainer(CEU)
+_register_trainer(SatImp)
+_register_trainer(WGA)
+_register_trainer(PDU)
