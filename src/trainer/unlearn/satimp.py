@@ -1,11 +1,16 @@
-from trainer.utils import compute_dpo_loss
 from trainer.unlearn.grad_diff import GradDiff
+from trainer.utils import compute_satimp_loss
 
 
-class NPO(GradDiff):
-    def __init__(self, beta=1.0, *args, **kwargs):
+class SatImp(GradDiff):
+    def __init__(
+        self, beta1=5.0, beta2=1.0, gamma=1.0, alpha=0.1, *args, **kwargs
+    ):  # attention, satimp requires two beta!!!!
         super().__init__(*args, **kwargs)
-        self.beta = beta
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.gamma = gamma
+        self.alpha = alpha
         if self.ref_model is None:
             self.ref_model = self._prepare_ref_model(self.model)
 
@@ -13,13 +18,13 @@ class NPO(GradDiff):
         self, model, inputs, return_outputs=False, num_items_in_batch=None
     ):
         forget_inputs = inputs["forget"]
-
-        forget_loss, forget_outputs = compute_dpo_loss(
-            model=model,
-            ref_model=self.ref_model,
-            win_inputs=None,
-            lose_inputs=forget_inputs,
-            beta=self.beta,
+        forget_inputs = {
+            "input_ids": forget_inputs["input_ids"],
+            "attention_mask": forget_inputs["attention_mask"],
+            "labels": forget_inputs["labels"],
+        }
+        forget_loss, forget_outputs = compute_satimp_loss(
+            model=model, inputs=forget_inputs, beta1=self.beta1, beta2=self.beta2
         )
 
         retain_inputs = inputs["retain"]

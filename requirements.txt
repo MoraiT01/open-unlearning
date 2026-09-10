@@ -15,3 +15,5 @@ scikit-learn==1.5.2
 deepspeed==0.15.4       # Has trouble on windows systems
 
 chromadb==1.0.0
+deepspeed==0.15.4
+wandb==0.21.4

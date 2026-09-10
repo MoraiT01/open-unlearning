@@ -19,7 +19,6 @@ def compute_kl_divergence(model, target_model, inputs):
         ref_outputs = target_model(**inputs)
 
     ref_probs = F.log_softmax(ref_outputs.logits, dim=-1)
-    ref_probs = F.log_softmax(ref_outputs.logits, dim=-1)
     ref_probs = ref_probs.view(-1, ref_outputs.logits.shape[-1])
 
     outputs = model(**inputs)
@@ -98,3 +97,38 @@ def compute_undial_loss(model, ref_model, inputs, beta):
         soft_label.view(-1, soft_label.size(-1)),
     )
     return loss.mean(), outputs
+
+
+def compute_wga_loss(model, inputs, beta):
+    outputs = model(**inputs)
+    labels = inputs["labels"]
+    labels = labels.to(outputs.logits.device)
+
+    shift_logits = outputs.logits[..., :-1, :].contiguous()
+    shift_labels = labels[..., 1:].contiguous()
+
+    lm_loss = nn.CrossEntropyLoss(ignore_index=-100, reduction="none")(
+        shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)
+    )
+    weight_ce = ((-lm_loss).exp().detach()) ** beta
+    forget_loss = -(weight_ce * lm_loss)[shift_labels.view(-1) != -100].mean()
+    return forget_loss, outputs
+
+
+def compute_satimp_loss(model, inputs, beta1, beta2):
+    outputs = model(**inputs)
+    labels = inputs["labels"]
+    labels = labels.to(outputs.logits.device)
+
+    shift_logits = outputs.logits[..., :-1, :].contiguous()
+    shift_labels = labels[..., 1:].contiguous()
+
+    lm_loss = nn.CrossEntropyLoss(ignore_index=-100, reduction="none")(
+        shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1)
+    )
+    weight_sat = ((-lm_loss).exp().detach()) ** beta1
+    weight_imp = (1 - (-lm_loss).exp().detach()) ** beta2
+    forget_loss = -((weight_sat * weight_imp) * lm_loss)[
+        shift_labels.view(-1) != -100
+    ].mean()
+    return forget_loss, outputs
