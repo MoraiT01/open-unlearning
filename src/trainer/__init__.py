@@ -11,6 +11,7 @@ from trainer.unlearn.dpo import DPO
 from trainer.unlearn.simnpo import SimNPO
 from trainer.unlearn.rmu import RMU
 from trainer.unlearn.undial import UNDIAL
+from trainer.unlearn.nova import NOVA
 from trainer.unlearn.ceu import CEU
 from trainer.unlearn.satimp import SatImp
 from trainer.unlearn.wga import WGA
@@ -95,6 +96,7 @@ _register_trainer(DPO)
 _register_trainer(SimNPO)
 _register_trainer(RMU)
 _register_trainer(UNDIAL)
+_register_trainer(NOVA)
 _register_trainer(CEU)
 _register_trainer(SatImp)
 _register_trainer(WGA)

@@ -1,0 +1,12 @@
+defaults:
+  - finetune
+
+handler: NOVA
+method_args:
+  noise_epochs: 20
+  noise_lr: 0.00000001
+  regularization_term: 0.00001
+  alpha: 0.01
+  sign: -1
+  soft_target: False
+  db_id: default
