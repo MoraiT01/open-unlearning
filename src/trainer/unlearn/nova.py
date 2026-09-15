@@ -58,8 +58,6 @@ class NOVA(UnlearnTrainer):
         # Initialize KLDivLoss for soft targets
         self.kl_loss_fct = nn.KLDivLoss(reduction='batchmean') 
     
-        self.tokenizer = None
-    
     def get_soft_target(self, model: nn.Module, forget_inputs: dict) -> torch.Tensor:
         """
         Generates soft targets (logits) for the forget inputs by passing them
@@ -388,7 +386,7 @@ class NOVA(UnlearnTrainer):
 
         return loss, model_outputs
 
-    def compute_loss(self, model, inputs, return_outputs=False):
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
         forget_inputs = inputs["forget"]
         retain_inputs = inputs["retain"]
 

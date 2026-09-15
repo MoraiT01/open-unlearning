@@ -20,7 +20,7 @@ srun hostname
 
 # Initialize Conda for the current shell session
 # Replace '~/miniconda3' with the actual path to your Miniconda/Anaconda installation if different
-source /fast_storage/kastler/miniconda3/etc/profile.d/conda.sh
+source $(conda info --base)/etc/profile.d/conda.sh
 
 # Now activate your environment
 conda activate /fast_storage/kastler/miniconda3/envs/unlearning

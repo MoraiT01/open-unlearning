@@ -12,14 +12,13 @@
 #SBATCH --qos=debugging
 #SBATCH --account=debugging
 
-
+set -e  # Exit immediately if a command exits with a non-zero status
 # Run the Python script
 srun hostname
 
 # print MIG devices ids for debugging
 echo $CUDA_VISIBLE_DEVICES
 
-# Add this line early in your Slurm script
 source $(conda info --base)/etc/profile.d/conda.sh
 
 # Needed until the environment runs smoothly
@@ -30,11 +29,29 @@ conda remove -n unlearning --all -y
 conda create -n unlearning python=3.11 -y 
 conda activate unlearning
 
+mkdir -p $CONDA_PREFIX/pip-config
+cat > $CONDA_PREFIX/pip-config/pip.conf << 'EOF'
+[global]
+no-cache-dir = true
+index-url = https://pypi.org/simple
+extra-index-url =
+trusted-host =
+EOF
+
+conda env config vars set PIP_CONFIG_FILE=$CONDA_PREFIX/pip-config/pip.conf
+conda deactivate && conda activate unlearning
+
 # chech if packaging was successfully installed
 python --version
-pip install -r requirements.txt
-pip install .[lm_eval]
-pip install --no-build-isolation flash-attn==2.6.3
+# Install the required dependencies
+# pip install -r requirements.txt
+pip install ".[lm_eval]"
+
+# pip install --no-build-isolation flash-attn==2.6.3
+pip install "https://huggingface.co/strangertoolshf/flash_attention_2_wheelhouse/resolve/main/wheelhouse-flash_attn-2.8.3/linux_x86_64/torch2.4/cu12/abiFALSE/cp311/flash_attn-2.8.3+cu12torch2.4cxx11abiFALSE-cp311-cp311-linux_x86_64.whl"
+
+# Data setup
+# python setup_data.py --eval 
 
 pip install optuna==4.3.0
 pip install optuna-dashboard==0.18.0
