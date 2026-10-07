@@ -38,9 +38,10 @@ echo "Current directory: $(pwd)"
 
 # --- Define lists for iteration ---
 # declare -a algorithms=("GradAscent" "GradDiff" "NPO" "DPO" "SimNPO" "RMU" "UNDIAL" "NOVA")
-declare -a algorithms=("NOVA")
+declare -a algorithms=("NOVA" "GradAscent" "GradDiff")
 declare -a models=("Llama-3.1-8B-Instruct" "Llama-3.2-3B-Instruct" "Llama-3.2-1B-Instruct")
 declare -a forget_splits=("forget10" "forget05" "forget01")
+declare -a seeds=(0 42 43 44 45 46 47 48 49 50 51)
 
 # Constants (as per your Optuna script)
 RETAIN_SPLIT="retain90"
@@ -50,118 +51,121 @@ HOLDOUT_SPLIT="holdout10"
 for ALGO in "${algorithms[@]}"; do
     for MODEL in "${models[@]}"; do
         for FORGET_SPLIT_NAME in "${forget_splits[@]}"; do
-            echo "--- Processing: Algo=${ALGO}, Model=${MODEL}, ForgetSplit=${FORGET_SPLIT_NAME} ---"
+            for SEED in "${seeds[@]}"; do
+                echo "--- Processing: Algo=${ALGO}, Model=${MODEL}, ForgetSplit=${FORGET_SPLIT_NAME}, Seed=${SEED} ---"
 
-            # Extract the numerical part from FORGET_SPLIT_NAME (e.g., "10" from "forget10")
-            # This assumes the format is always "forgetXX"
-            FORGET_PERCENTAGE=$(echo "$FORGET_SPLIT_NAME" | sed 's/forget//')
+                # Extract the numerical part from FORGET_SPLIT_NAME (e.g., "10" from "forget10")
+                # This assumes the format is always "forgetXX"
+                FORGET_PERCENTAGE=$(echo "$FORGET_SPLIT_NAME" | sed 's/forget//')
 
-            # Calculate RETAIN_PERCENTAGE
-            RETAIN_PERCENTAGE=$((100 - FORGET_PERCENTAGE))
+                # Calculate RETAIN_PERCENTAGE
+                RETAIN_PERCENTAGE=$((100 - FORGET_PERCENTAGE))
 
-            # Construct the dynamic RETAIN_SPLIT and HOLDOUT_SPLIT
-            DYNAMIC_RETAIN_SPLIT="retain${RETAIN_PERCENTAGE}"
-            DYNAMIC_HOLDOUT_SPLIT="holdout${FORGET_PERCENTAGE}"
+                # Construct the dynamic RETAIN_SPLIT and HOLDOUT_SPLIT
+                DYNAMIC_RETAIN_SPLIT="retain${RETAIN_PERCENTAGE}"
+                DYNAMIC_HOLDOUT_SPLIT="holdout${FORGET_PERCENTAGE}"
 
-            # Dynamically set paths based on current iteration
-            CURRENT_RETAIN_LOGS_PATH="saves/eval/tofu_${MODEL}_${DYNAMIC_RETAIN_SPLIT}/TOFU_EVAL.json"
-            
-            # Shorten model name for directory path if it's too long
-            MODEL_NAME_SHORT=$(echo "$MODEL" | sed 's/Llama-3\.1-//g; s/Llama-3\.2-//g; s/-Instruct//g')
+                # Dynamically set paths based on current iteration
+                CURRENT_RETAIN_LOGS_PATH="saves/eval/tofu_${MODEL}_${DYNAMIC_RETAIN_SPLIT}/TOFU_EVAL.json"
+                
+                # Shorten model name for directory path if it's too long
+                MODEL_NAME_SHORT=$(echo "$MODEL" | sed 's/Llama-3\.1-//g; s/Llama-3\.2-//g; s/-Instruct//g')
 
-            # Directory for this specific run's outputs
-            # Using current timestamp to ensure unique directory names if runs are repeated
-            TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-            RUN_TASK_NAME="${ALGO}_${MODEL_NAME_SHORT}_${FORGET_SPLIT_NAME}_${TIMESTAMP}"
-            
-            # Base directory for outputs of this specific unlearning run
-            UNLEARN_OUTPUT_BASE="saves/unlearn/bulk_run/${ALGO}/${MODEL}/${FORGET_SPLIT_NAME}/${RUN_TASK_NAME}"
-            EVAL_OUTPUT_DIR="${UNLEARN_OUTPUT_BASE}/evals"
-            
-            mkdir -p "$UNLEARN_OUTPUT_BASE"
-            mkdir -p "$EVAL_OUTPUT_DIR"
+                # Directory for this specific run's outputs
+                # Include the seed to keep each run's output directory unique.
+                RUN_TASK_NAME="${ALGO}_${MODEL_NAME_SHORT}_${FORGET_SPLIT_NAME}_${SEED}"
+                
+                # Base directory for outputs of this specific unlearning run
+                UNLEARN_OUTPUT_BASE="saves/unlearn/bulk_run/${ALGO}/${MODEL}/${FORGET_SPLIT_NAME}/${RUN_TASK_NAME}"
+                EVAL_OUTPUT_DIR="${UNLEARN_OUTPUT_BASE}/evals"
+                
+                mkdir -p "$UNLEARN_OUTPUT_BASE"
+                mkdir -p "$EVAL_OUTPUT_DIR"
 
-            echo "Output directory: $UNLEARN_OUTPUT_BASE"
-            echo "Eval output directory: $EVAL_OUTPUT_DIR"
+                echo "Output directory: $UNLEARN_OUTPUT_BASE"
+                echo "Eval output directory: $EVAL_OUTPUT_DIR"
 
-            # --- Construct Training Command ---
-            TRAIN_COMMAND=(
-                "python" "src/train.py"
-                "--config-name=unlearn.yaml"
-                "experiment=unlearn/tofu/default"
-                "trainer=${ALGO}"
-                "task_name=${RUN_TASK_NAME}"
-                "model=${MODEL}"
-                "forget_split=${FORGET_SPLIT_NAME}"
-                "retain_split=${DYNAMIC_RETAIN_SPLIT}"
-                "retain_logs_path=${CURRENT_RETAIN_LOGS_PATH}"
-                "paths.output_dir=${UNLEARN_OUTPUT_BASE}"
-            )
-            echo "Running training command:"
-            echo "${TRAIN_COMMAND[@]}"
-            "${TRAIN_COMMAND[@]}"
-            TRAIN_EXIT_CODE=$?
+                # --- Construct Training Command ---
+                TRAIN_COMMAND=(
+                    "python" "src/train.py"
+                    "--config-name=unlearn.yaml"
+                    "experiment=unlearn/tofu/default"
+                    "trainer=${ALGO}"
+                    "task_name=${RUN_TASK_NAME}"
+                    "model=${MODEL}"
+                    "forget_split=${FORGET_SPLIT_NAME}"
+                    "retain_split=${DYNAMIC_RETAIN_SPLIT}"
+                    "retain_logs_path=${CURRENT_RETAIN_LOGS_PATH}"
+                    "paths.output_dir=${UNLEARN_OUTPUT_BASE}"
+                    "trainer.args.seed=${SEED}"
+                )
+                echo "Running training command:"
+                echo "${TRAIN_COMMAND[@]}"
+                "${TRAIN_COMMAND[@]}"
+                TRAIN_EXIT_CODE=$?
 
-            if [ $TRAIN_EXIT_CODE -ne 0 ]; then
-                echo "ERROR: Training failed for ${ALGO}-${MODEL}-${FORGET_SPLIT_NAME}. Skipping evaluation."
-                continue # Skip to next combination
-            fi
+                if [ $TRAIN_EXIT_CODE -ne 0 ]; then
+                    echo "ERROR: Training failed for ${ALGO}-${MODEL}-${FORGET_SPLIT_NAME}-seed${SEED}. Skipping evaluation."
+                    continue # Skip to next combination
+                fi
 
-            # --- Construct Evaluation Command ---
-            EVAL_COMMAND=(
-                "python" "src/eval.py"
-                "experiment=eval/tofu/default.yaml"
-                "forget_split=${FORGET_SPLIT_NAME}"
-                "holdout_split=${DYNAMIC_HOLDOUT_SPLIT}"
-                "model=${MODEL}"
-                "task_name=${RUN_TASK_NAME}"
-                "model.model_args.pretrained_model_name_or_path=${UNLEARN_OUTPUT_BASE}"
-                "paths.output_dir=${EVAL_OUTPUT_DIR}"
-                "retain_logs_path=${CURRENT_RETAIN_LOGS_PATH}"
-            )
-            echo "Running evaluation command:"
-            echo "${EVAL_COMMAND[@]}"
-            "${EVAL_COMMAND[@]}"
-            EVAL_EXIT_CODE=$?
+                # --- Construct Evaluation Command ---
+                EVAL_COMMAND=(
+                    "python" "src/eval.py"
+                    "experiment=eval/tofu/default.yaml"
+                    "seed=${SEED}"
+                    "forget_split=${FORGET_SPLIT_NAME}"
+                    "holdout_split=${DYNAMIC_HOLDOUT_SPLIT}"
+                    "model=${MODEL}"
+                    "task_name=${RUN_TASK_NAME}"
+                    "model.model_args.pretrained_model_name_or_path=${UNLEARN_OUTPUT_BASE}"
+                    "paths.output_dir=${EVAL_OUTPUT_DIR}"
+                    "retain_logs_path=${CURRENT_RETAIN_LOGS_PATH}"
+                )
+                echo "Running evaluation command:"
+                echo "${EVAL_COMMAND[@]}"
+                "${EVAL_COMMAND[@]}"
+                EVAL_EXIT_CODE=$?
 
-            if [ $EVAL_EXIT_CODE -ne 0 ]; then
-                echo "ERROR: Evaluation failed for ${ALGO}-${MODEL}-${FORGET_SPLIT_NAME}."
-            else
-                echo "SUCCESS: ${ALGO}-${MODEL}-${FORGET_SPLIT_NAME} completed successfully."
-                # Optional: Clean up model.safetensors or other large files
-                # if you don't need them after evaluation
-                # MODEL_TENSORS_FILE="$UNLEARN_OUTPUT_BASE/model.safetensors"
-                # if [ -f "$MODEL_TENSORS_FILE" ]; then
-                #     echo "Deleting: $MODEL_TENSORS_FILE"
-                #     rm "$MODEL_TENSORS_FILE"
-                # fi
-                # For the next Run, I'd like to keep the models
-            fi
-            echo "" # Add a newline for readability between runs
-            #!/bin/bash
-
-            # Configuration
-            CHROMADB_ID="default"
-            BASE_DIR="saves/chromadb"
-            TEMP_DIR="${BASE_DIR}/${CHROMADB_ID}"
-
-            # Check if an ID was provided
-            if [ -z "$CHROMADB_ID" ]; then
-                echo "❌ Error: No chromadb_id provided."
-                exit 1
-            fi
-
-            # Logic to delete the directory
-            if [ -d "$TEMP_DIR" ]; then
-                if rm -rf "$TEMP_DIR"; then
-                    echo "✅ Successfully cleaned up ephemeral session: ${TEMP_DIR}"
+                if [ $EVAL_EXIT_CODE -ne 0 ]; then
+                    echo "ERROR: Evaluation failed for ${ALGO}-${MODEL}-${FORGET_SPLIT_NAME}-seed${SEED}."
                 else
-                    echo "❌ Failed to clean up temporary directory: ${TEMP_DIR}"
+                    echo "SUCCESS: ${ALGO}-${MODEL}-${FORGET_SPLIT_NAME}-seed${SEED} completed successfully."
+                    # Optional: Clean up model.safetensors or other large files
+                    # if you don't need them after evaluation
+                    # MODEL_TENSORS_FILE="$UNLEARN_OUTPUT_BASE/model.safetensors"
+                    # if [ -f "$MODEL_TENSORS_FILE" ]; then
+                    #     echo "Deleting: $MODEL_TENSORS_FILE"
+                    #     rm "$MODEL_TENSORS_FILE"
+                    # fi
+                    # For the next Run, I'd like to keep the models
+                fi
+                echo "" # Add a newline for readability between runs
+                #!/bin/bash
+
+                # Configuration
+                CHROMADB_ID="default"
+                BASE_DIR="saves/chromadb"
+                TEMP_DIR="${BASE_DIR}/${CHROMADB_ID}"
+
+                # Check if an ID was provided
+                if [ -z "$CHROMADB_ID" ]; then
+                    echo "❌ Error: No chromadb_id provided."
                     exit 1
                 fi
-            else
-                echo "ℹ️ Directory does not exist: ${TEMP_DIR}"
-            fi
+
+                # Logic to delete the directory
+                if [ -d "$TEMP_DIR" ]; then
+                    if rm -rf "$TEMP_DIR"; then
+                        echo "✅ Successfully cleaned up ephemeral session: ${TEMP_DIR}"
+                    else
+                        echo "❌ Failed to clean up temporary directory: ${TEMP_DIR}"
+                        exit 1
+                    fi
+                else
+                    echo "ℹ️ Directory does not exist: ${TEMP_DIR}"
+                fi
+            done
         done
     done
 done
